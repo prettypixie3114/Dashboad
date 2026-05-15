@@ -304,6 +304,14 @@ function computeActuals(data) {
   out.frequency = data.frequency;
   const rev = data.revenue || 0, spend = data.spend || 0, orders = data.purchases || 0;
   out.contribMargin = Math.round(rev * CFG.business.grossMargin - spend - orders * CFG.business.shippingPerOrder);
+  // Conversion funnel metrics (all from Meta)
+  out.ctr             = data.ctr;
+  out.linkCtr         = data.impressions > 0 ? +((data.linkClicks / data.impressions) * 100).toFixed(2) : null;
+  out.cvr             = data.linkClicks > 0 ? +((data.purchases  / data.linkClicks)   * 100).toFixed(2) : null;
+  out.atcRate         = data.linkClicks > 0 ? +((data.atc        / data.linkClicks)   * 100).toFixed(2) : null;
+  out.icToPurchaseKpi = data.ic         > 0 ? +((data.purchases  / data.ic)           * 100).toFixed(2) : null;
+  out.hookRate        = data.hookRate;
+  out.cpc             = data.cpc;
   // The rest are sourced from Shopify / Klaviyo etc — not available from Meta
   return out;
 }
@@ -381,6 +389,101 @@ function evalKillRule(camp) {
   if (camp.frequency != null && camp.frequency > 3.0) return { level:'refresh', action:'REFRESH creative immediately', why:'Frequency fatigue · creative refresh needed', auto:false };
   return null;
 }
+
+/* ═══ PER-AD ACTION ENGINE · Sheet 16 Section 3 thresholds ═════════ */
+// Returns { level, text, why } for any ad based on stage, spend, ROAS, frequency, orders.
+function evalAdAction(ad, cfg) {
+  if (!ad || !ad.hasSpend) return { level: 'idle', text: 'No spend yet', why: '' };
+  const spend = ad.spend || 0;
+  const roas = ad.roas;
+  const freq = ad.frequency;
+  const type = cfg?.type || 'prospecting';
+
+  // Universal frequency rules (apply to all stages)
+  if (freq != null && freq > 3.5) return { level: 'pause',   text: 'PAUSE · freq fatigue',     why: `Freq ${fx(freq)} over 3.5x cap` };
+  if (freq != null && freq > 3.0) return { level: 'refresh', text: 'REFRESH creative',         why: `Freq ${fx(freq)} · fatigue active` };
+
+  // Universal zero-conversion rule
+  if (ad.purchases === 0 && spend >= 5000) {
+    return { level: 'kill', text: 'KILL · 0 orders', why: `${inrK(spend)} spent · 0 conversions` };
+  }
+
+  // Cold prospecting
+  if (type === 'prospecting') {
+    if (spend >= 15000 && roas != null) {
+      if (roas <  1.0) return { level: 'kill',    text: 'KILL within 24hr',          why: `${fx(roas)} at ${inrK(spend)} · contribution-negative` };
+      if (roas <  1.4) return { level: 'refresh', text: 'REFRESH hook · give 7d',    why: `${fx(roas)} at ${inrK(spend)} · hook may be the issue` };
+      if (roas >= 1.5) return { level: 'scale',   text: 'PROMOTE · budget +20%',     why: `${fx(roas)} at ${inrK(spend)} · winner identified` };
+      return { level: 'hold', text: 'Hold · in band', why: `${fx(roas)} at ${inrK(spend)}` };
+    }
+    return { level: 'idle', text: 'Building signal', why: `${inrK(spend)} of ₹15K spend gate` };
+  }
+
+  // Hot DPA retargeting (C7)
+  if (cfg?.slot === 'C7') {
+    if (spend >= 5000 && roas != null && roas < 2.0) {
+      return { level: 'audit', text: 'CATALOG FEED AUDIT', why: `${fx(roas)} at ${inrK(spend)} · check feed images/prices · NOT creative` };
+    }
+    if (roas != null && roas >= 3.5) return { level: 'scale', text: 'SCALE +25% · DPA winner', why: `${fx(roas)} · highest-leverage scaling` };
+    if (roas != null && roas >= 2.5) return { level: 'hold',  text: 'Hold · DPA in band',     why: `${fx(roas)} · within target range` };
+    return { level: 'idle', text: 'Building signal', why: `${inrK(spend)} of ₹5K spend gate` };
+  }
+
+  // Warm retargeting (C8)
+  if (type === 'retargeting') {
+    if (spend >= 8000 && roas != null) {
+      if (roas <  1.5) return { level: 'kill',  text: 'KILL within 48hr',       why: `${fx(roas)} at ${inrK(spend)} · warm should ≥1.5x` };
+      if (roas >= 2.5) return { level: 'scale', text: 'PROMOTE · brief deriv.',  why: `${fx(roas)} · strong performer` };
+      return { level: 'hold', text: 'Hold · in band', why: `${fx(roas)} at ${inrK(spend)}` };
+    }
+    return { level: 'idle', text: 'Building signal', why: `${inrK(spend)} of ₹8K spend gate` };
+  }
+
+  // Reactivation (C9)
+  if (type === 'reactivation') {
+    if (spend >= 5000 && roas != null) {
+      if (roas <  2.5) return { level: 'refresh', text: 'REFRESH hook + window', why: `${fx(roas)} at ${inrK(spend)} · past buyers should hit 4x+` };
+      if (roas >= 5.0) return { level: 'scale',   text: 'SCALE +30% · gold',     why: `${fx(roas)} · highest-ROAS campaign in account` };
+      return { level: 'hold', text: 'Hold · in band', why: `${fx(roas)} at ${inrK(spend)}` };
+    }
+    return { level: 'idle', text: 'Building signal', why: `${inrK(spend)} of ₹5K spend gate` };
+  }
+
+  return { level: 'hold', text: 'Monitor', why: '' };
+}
+
+/* ═══ CONVERSION FUNNEL COMPUTATION ════════════════════════════════ */
+function computeFunnel(data) {
+  const i = data.impressions || 0;
+  const lc = data.linkClicks || 0;
+  const ac = data.atc || 0;
+  const ic = data.ic || 0;
+  const p = data.purchases || 0;
+  return {
+    impressions: i,
+    linkClicks: lc,
+    linkCtr:     i  > 0 ? +((lc / i)  * 100).toFixed(2) : null,
+    atc: ac,
+    atcRate:     lc > 0 ? +((ac / lc) * 100).toFixed(2) : null,
+    ic,
+    icRate:      ac > 0 ? +((ic / ac) * 100).toFixed(2) : null,
+    purchases: p,
+    icToPurchase: ic > 0 ? +((p / ic) * 100).toFixed(2) : null,
+    overallCvr:  lc > 0 ? +((p / lc) * 100).toFixed(2) : null,
+    dropImpToClick:  i  > 0 ? +((1 - lc/i)  * 100).toFixed(1) : null,
+    dropClickToAtc:  lc > 0 ? +((1 - ac/lc) * 100).toFixed(1) : null,
+    dropAtcToIc:     ac > 0 ? +((1 - ic/ac) * 100).toFixed(1) : null,
+    dropIcToBuy:     ic > 0 ? +((1 - p/ic)  * 100).toFixed(1) : null,
+  };
+}
+
+// Per-stage benchmarks (phase-agnostic; tighten via config later if needed)
+const FUNNEL_BENCH = {
+  linkCtr:      { target: 1.5, kill: 1.0, fmt: '%' },
+  atcRate:      { target: 5.0, kill: 3.0, fmt: '%' },
+  icRate:       { target: 60,  kill: 40,  fmt: '%' },
+  icToPurchase: { target: 48.8, kill: 36, fmt: '%' },
+};
 
 /* ═══ COMPONENTS ═══════════════════════════════════════════════════ */
 
@@ -530,7 +633,97 @@ function MarginRulesPanel({ ruleResults }) {
   </div>);
 }
 
-// ── 4) FUNNEL STAGE ALLOCATION ──────────────────────────────────────
+// ── 4) CONVERSION FUNNEL · Impressions → Click → ATC → IC → Purchase ─
+function ConversionFunnelPanel({ data }) {
+  const [open, setOpen] = useState(true);
+  if (!data || (data.impressions || 0) === 0) return null;
+  const f = computeFunnel(data);
+  // 5 stages with cascading bar widths
+  const stages = [
+    { key: 'imp',  name: 'Impressions',  value: f.impressions, fmt: 'n',   bar: 100, dropFromPrev: null,  rateFromPrev: null,                        rateLabel: '',         note: 'Total ad views' },
+    { key: 'lc',   name: 'Link Clicks',  value: f.linkClicks,  fmt: 'n',   bar: f.impressions > 0 ? Math.max(2, f.linkClicks / f.impressions * 100) : 0,  dropFromPrev: f.dropImpToClick, rateFromPrev: f.linkCtr,       rateLabel: 'Link CTR', note: 'People who tap the ad', bench: FUNNEL_BENCH.linkCtr },
+    { key: 'atc',  name: 'Add to Cart',  value: f.atc,         fmt: 'n',   bar: f.impressions > 0 ? Math.max(1.5, f.atc / f.impressions * 100 * 4) : 0, dropFromPrev: f.dropClickToAtc, rateFromPrev: f.atcRate,       rateLabel: 'ATC rate', note: 'PDP merch · price · trust signal', bench: FUNNEL_BENCH.atcRate },
+    { key: 'ic',   name: 'Init. Checkout', value: f.ic,        fmt: 'n',   bar: f.impressions > 0 ? Math.max(1, f.ic / f.impressions * 100 * 8) : 0,    dropFromPrev: f.dropAtcToIc,    rateFromPrev: f.icRate,        rateLabel: 'IC rate',  note: 'Cart → checkout intent', bench: FUNNEL_BENCH.icRate },
+    { key: 'buy',  name: 'Purchase',     value: f.purchases,   fmt: 'n',   bar: f.impressions > 0 ? Math.max(0.8, f.purchases / f.impressions * 100 * 12) : 0, dropFromPrev: f.dropIcToBuy, rateFromPrev: f.icToPurchase,  rateLabel: 'IC → Buy', note: 'Razorpay/GoKwik checkout health (was 48.8% · 36% today)', bench: FUNNEL_BENCH.icToPurchase },
+  ];
+  // The biggest leak stage = highest drop-off
+  const drops = stages.slice(1).map(s => ({ name: s.name, drop: s.dropFromPrev, rate: s.rateFromPrev, label: s.rateLabel, bench: s.bench }));
+  const biggestLeak = drops.reduce((a, b) => (a.drop || 0) > (b.drop || 0) ? a : b);
+  // Worst stage vs benchmark
+  const stageStatus = s => {
+    if (!s.bench || s.rateFromPrev == null) return 'idle';
+    if (s.rateFromPrev >= s.bench.target) return 'met';
+    if (s.rateFromPrev >= s.bench.kill)   return 'risk';
+    return 'under';
+  };
+  const worstStage = stages.slice(1).reduce((worst, cur) => {
+    const ws = stageStatus(worst), cs = stageStatus(cur);
+    const rank = { under:3, risk:2, met:1, idle:0 };
+    return rank[cs] > rank[ws] ? cur : worst;
+  });
+  const worstStatus = stageStatus(worstStage);
+  return (<div className="card mb-3">
+    <div className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[.02] select-none" onClick={()=>setOpen(!open)}>
+      <div>
+        <div className="sec-hd">Conversion Funnel · CRO Diagnostic · Section 4 of plan</div>
+        <div className="text-xl font-bold text-stone-100 mt-0.5">From Impression to Purchase · {f.overallCvr != null ? <span className="text-amber-500 mono">{pct(f.overallCvr,2)} overall CVR</span> : <span className="text-stone-500 text-base">no data</span>}</div>
+      </div>
+      <div className="flex items-center gap-2">
+        {worstStatus === 'under' && <span className="chip under text-[9px]">{worstStage.name} leaking</span>}
+        {worstStatus === 'risk'  && <span className="chip risk text-[9px]">{worstStage.name} at risk</span>}
+        {worstStatus === 'met'   && <span className="chip met text-[9px]">All stages healthy</span>}
+        <span className="text-stone-600">{open?'▲':'▼'}</span>
+      </div>
+    </div>
+    {open && (<div className="border-t border-stone-800/40 sd">
+      {/* Stage cards */}
+      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+        {stages.map((s, idx) => {
+          const stat = stageStatus(s);
+          return (<div key={s.key} className="relative">
+            {idx > 0 && (<div className="hidden lg:block absolute -left-1.5 top-1/2 -translate-y-1/2 text-stone-700 text-lg">→</div>)}
+            <div className={`card !border-stone-800/60 p-2.5 ${stat==='under'?'!border-red-900/50':stat==='risk'?'!border-amber-900/40':''}`}>
+              <div className="flex items-baseline justify-between">
+                <div className="text-[9px] uppercase tracking-widest text-stone-500 mono">{s.name}</div>
+                {s.bench && <span className={`dot ${stat}`}/>}
+              </div>
+              <div className="text-2xl font-extrabold mono text-stone-100 mt-1">{num(s.value)}</div>
+              {s.rateFromPrev != null && (<div className="text-[10px] mt-1">
+                <span className="text-stone-600 mono">{s.rateLabel} </span>
+                <span className={`mono font-bold ${stColor(stat)}`}>{pct(s.rateFromPrev, 2)}</span>
+                {s.bench && <span className="text-stone-600 mono"> · goal ≥{s.bench.target}%</span>}
+              </div>)}
+              {s.dropFromPrev != null && (<div className="text-[10px] text-stone-500 mono mt-0.5">{pct(s.dropFromPrev, 1)} drop-off</div>)}
+              <div className="text-[10px] text-stone-600 mt-1.5 leading-snug">{s.note}</div>
+            </div>
+          </div>);
+        })}
+      </div>
+      {/* Leak diagnosis bar */}
+      <div className="border-t border-stone-800/40 px-4 py-3">
+        <div className="sec-hd mb-1.5">Biggest Funnel Leak</div>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <span className="text-sm font-bold text-stone-100">{biggestLeak.name}</span>
+            <span className="mono text-stone-500 text-[11px] ml-2">losing {pct(biggestLeak.drop, 1)} at this stage</span>
+          </div>
+          <div className="text-[11px] text-stone-400 mono">
+            {biggestLeak.label}: <span className="text-stone-200 font-bold">{pct(biggestLeak.rate, 2)}</span>
+            {biggestLeak.bench && <span className="text-stone-600"> · goal ≥{biggestLeak.bench.target}%</span>}
+          </div>
+        </div>
+        <div className="text-[11px] text-amber-400 mt-1.5">
+          {worstStage.key === 'lc'  && '▸ Hook/creative or audience problem — first-3-sec audit and refresh top ads'}
+          {worstStage.key === 'atc' && '▸ Landing page problem — bounce, pricing visibility, trust badges, mobile speed'}
+          {worstStage.key === 'ic'  && '▸ Cart-to-checkout friction — UPI first, free-ship threshold visible, sticky CTA'}
+          {worstStage.key === 'buy' && '▸ Checkout completion problem — OTP delivery rate, address autofill, payment ordering. PDP Section 8 CO-1–CO-8.'}
+        </div>
+      </div>
+    </div>)}
+  </div>);
+}
+
+// ── 5) FUNNEL STAGE ALLOCATION ──────────────────────────────────────
 function StagePanel({ data, phase }) {
   const stages = { prospecting:{spend:0,rev:0,orders:0}, retargeting:{spend:0,rev:0,orders:0}, reactivation:{spend:0,rev:0,orders:0} };
   (data.campaigns||[]).forEach(c => { const t = SLOT_MAP[c.slot]?.type; if (t) { stages[t].spend += c.spend||0; stages[t].rev += c.revenue||0; stages[t].orders += c.purchases||0; } });
@@ -710,9 +903,14 @@ function CampaignCard({ cfg, data, days, phase, onExpand }) {
           </div>
         </div>}
       </div>
-      <div className="mt-2 pt-2 border-t border-stone-800/40 flex justify-between text-[10px] mono">
-        <span className="text-stone-600">AOV {inr(data?.aov)} · Freq {fx(data?.frequency)}</span>
-        <span className="text-amber-500">tap →</span>
+      <div className="mt-2 pt-2 border-t border-stone-800/40 text-[10px] mono">
+        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+          <div className="text-stone-600">CVR <span className={`font-bold ${data?.linkClicks > 0 && data?.purchases > 0 && (data.purchases/data.linkClicks*100) >= 1.5 ? 'text-emerald-400' : (data?.linkClicks > 0 && data?.purchases > 0 ? 'text-amber-400' : 'text-stone-400')}`}>{data?.linkClicks > 0 ? pct(data.purchases/data.linkClicks*100, 2) : '—'}</span></div>
+          <div className="text-stone-600">CTR <span className="font-bold text-stone-300">{data?.linkClicks > 0 && data?.impressions > 0 ? pct(data.linkClicks/data.impressions*100, 2) : '—'}</span></div>
+          <div className="text-stone-600">AOV <span className="font-bold text-stone-300">{inr(data?.aov)}</span></div>
+          <div className="text-stone-600">Freq <span className={`font-bold ${data?.frequency>3.5?'text-red-400':data?.frequency>3.0?'text-amber-400':'text-stone-300'}`}>{fx(data?.frequency)}</span></div>
+        </div>
+        <div className="text-right mt-1 text-amber-500 font-bold">tap for ad-level →</div>
       </div>
     </div>
   </div>);
@@ -858,6 +1056,82 @@ function CampaignDetail({ cfg, data, detail, loading, dateLabel, days, phase, on
                 })}
               </tbody>
             </table>
+          </div>
+        </div>}
+
+        {/* AD-LEVEL · per-ad recommendation engine (Sheet 16 Section 3) */}
+        {detail && detail.ads && detail.ads.length > 0 && <div className="card">
+          <div className="px-4 py-2.5 border-b border-stone-800/40 flex flex-wrap items-baseline gap-2">
+            <span className="text-sm font-semibold text-stone-100">Ads · {detail.ads.length} total · {detail.ads.filter(a=>a.hasSpend).length} spending</span>
+            <span className="text-[10px] text-stone-500">target P{phase.phaseNo}: {cfg['adsP' + phase.phaseNo]} ads · per-ad action follows kill rules</span>
+          </div>
+          {/* Action summary chips */}
+          {(() => {
+            const verdicts = detail.ads.filter(a => a.hasSpend).map(a => evalAdAction(a, cfg));
+            const counts = verdicts.reduce((acc,v) => { acc[v.level] = (acc[v.level]||0)+1; return acc; }, {});
+            return (<div className="px-4 py-2 border-b border-stone-800/30 flex flex-wrap items-center gap-1.5 text-[10px]">
+              <span className="sec-hd !mb-0">Recommendations</span>
+              {counts.kill    && <span className="chip under text-[9px]">{counts.kill} KILL</span>}
+              {counts.pause   && <span className="chip under text-[9px]">{counts.pause} PAUSE</span>}
+              {counts.refresh && <span className="chip risk text-[9px]">{counts.refresh} REFRESH</span>}
+              {counts.audit   && <span className="chip risk text-[9px]">{counts.audit} AUDIT</span>}
+              {counts.scale   && <span className="chip met text-[9px]">{counts.scale} SCALE</span>}
+              {counts.hold    && <span className="chip idle text-[9px]">{counts.hold} HOLD</span>}
+              {counts.idle    && <span className="chip idle text-[9px]">{counts.idle} BUILDING</span>}
+            </div>);
+          })()}
+          <div className="p-4 overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="text-left text-stone-500 mono uppercase tracking-widest text-[9px]">
+                  <th className="py-1 pr-2">Ad</th>
+                  <th className="text-right py-1 px-1">Spend</th>
+                  <th className="text-right py-1 px-1">ROAS</th>
+                  <th className="text-right py-1 px-1">CPA</th>
+                  <th className="text-right py-1 px-1">CVR</th>
+                  <th className="text-right py-1 px-1">Orders</th>
+                  <th className="text-right py-1 px-1">Freq</th>
+                  <th className="text-right py-1 pl-1">Recommended Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-800/30">
+                {[...detail.ads].sort((a,b)=>(b.spend||0)-(a.spend||0)).map(ad => {
+                  const verdict = evalAdAction(ad, cfg);
+                  const cvr = ad.linkClicks > 0 ? +(ad.purchases / ad.linkClicks * 100).toFixed(2) : null;
+                  const lvlCol = { kill:'text-red-400', pause:'text-red-400', refresh:'text-amber-400', audit:'text-amber-400', scale:'text-emerald-400', hold:'text-stone-400', idle:'text-stone-600' }[verdict.level] || 'text-stone-400';
+                  const rowBg  = verdict.level === 'kill' || verdict.level === 'pause' ? 'bg-red-950/15' : verdict.level === 'scale' ? 'bg-emerald-950/10' : '';
+                  return (<tr key={ad.id} className={`row-h ${rowBg}`}>
+                    <td className="py-1.5 pr-2 text-stone-200 max-w-[240px]">
+                      <div className="truncate" title={ad.name}>{ad.name}</div>
+                      <a href={`https://business.facebook.com/adsmanager/manage/ads?act=${CFG.meta.accountId}&selected_ad_ids=${ad.id}`} target="_blank" rel="noreferrer" className="text-[9px] text-stone-600 hover:text-amber-500 mono">{ad.id} ↗</a>
+                    </td>
+                    <td className="text-right py-1.5 px-1 mono">{inr(ad.spend)}</td>
+                    <td className="text-right py-1.5 px-1 mono">
+                      <span className={ad.roas!=null && ad.roas>=1.5?'text-emerald-400 font-bold':ad.roas!=null && ad.roas<1.0?'text-red-400 font-bold':'text-stone-300'}>{fx(ad.roas)}</span>
+                    </td>
+                    <td className="text-right py-1.5 px-1 mono text-stone-300">{inr(ad.cpa)}</td>
+                    <td className="text-right py-1.5 px-1 mono">
+                      <span className={cvr!=null && cvr>=2.0?'text-emerald-400':cvr!=null && cvr<1.0?'text-red-400':'text-stone-300'}>{cvr!=null?pct(cvr,2):'—'}</span>
+                    </td>
+                    <td className="text-right py-1.5 px-1 mono text-stone-300">{ad.purchases || 0}</td>
+                    <td className="text-right py-1.5 px-1 mono">
+                      <span className={ad.frequency>3.5?'text-red-400 font-bold':ad.frequency>3.0?'text-amber-400':'text-stone-300'}>{fx(ad.frequency)}</span>
+                    </td>
+                    <td className="text-right py-1.5 pl-1">
+                      <div className={`mono text-[10px] font-bold ${lvlCol}`}>{verdict.text}</div>
+                      <div className="text-[9px] text-stone-600 mono">{verdict.why}</div>
+                    </td>
+                  </tr>);
+                })}
+              </tbody>
+            </table>
+          </div>
+          {/* Recommendation legend */}
+          <div className="px-4 py-2 border-t border-stone-800/30 text-[10px] text-stone-500 mono">
+            <span className="text-red-400">KILL</span>/PAUSE = stop spend ·
+            <span className="text-amber-400"> REFRESH</span>/AUDIT = creative or feed issue ·
+            <span className="text-emerald-400"> SCALE</span> = budget +20% ·
+            HOLD = within band · BUILDING = below spend gate
           </div>
         </div>}
       </div>
@@ -1068,6 +1342,10 @@ function Dashboard({ token, onChangeToken }) {
   const [expanded, setExpanded] = useState(null);
   const [detail, setDetail] = useState({});
   const [loadingDetail, setLoadingDetail] = useState({});
+  const [autoRefresh, setAutoRefresh] = useState(() => {
+    try { return parseInt(localStorage.getItem('pixie_autorefresh') || '0', 10); } catch { return 0; }
+  });
+  const [tick, setTick] = useState(0);  // forces re-render for "synced X ago" counter
 
   const dateQ = useMemo(() => useCustom && custom.s && custom.u
     ? `time_range=${encodeURIComponent(JSON.stringify({since:custom.s,until:custom.u}))}`
@@ -1082,6 +1360,20 @@ function Dashboard({ token, onChangeToken }) {
   }, [token, dateQ]);
 
   useEffect(() => { sync(); }, [sync]);
+
+  // Auto-refresh interval (off / 5 / 15 / 30 min)
+  useEffect(() => {
+    localStorage.setItem('pixie_autorefresh', String(autoRefresh));
+    if (autoRefresh === 0) return;
+    const id = setInterval(() => sync(), autoRefresh * 60 * 1000);
+    return () => clearInterval(id);
+  }, [autoRefresh, sync]);
+
+  // Tick every 10s so "synced X seconds ago" stays fresh
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 10000);
+    return () => clearInterval(id);
+  }, []);
 
   const loadDetail = useCallback(async (id) => {
     if (loadingDetail[id]) return;
@@ -1113,12 +1405,22 @@ function Dashboard({ token, onChangeToken }) {
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-sm font-bold text-stone-200">Pretty Pixie · Fashion Forever</span>
             <span className="text-stone-700">·</span>
-            <span className="sec-hd hidden sm:block !mb-0">Performance Command Center · v5</span>
-            {data && <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${syncing?'bg-amber-400 pulse':'bg-emerald-500'}`}/>}
-            {lastSync && <span className="text-[9px] text-stone-600 hidden sm:block">{syncing?'Syncing…':'Synced '+new Date(lastSync).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</span>}
+            <span className="sec-hd hidden sm:block !mb-0">Performance Command Center · v5.1</span>
+            {data && <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${syncing?'bg-amber-400 pulse':autoRefresh>0?'bg-emerald-500 pulse':'bg-emerald-500'}`}/>}
+            {lastSync && (() => {
+              const secs = Math.floor((Date.now() - new Date(lastSync).getTime()) / 1000);
+              const ago = secs < 60 ? `${secs}s ago` : secs < 3600 ? `${Math.floor(secs/60)}m ago` : `${Math.floor(secs/3600)}h ago`;
+              return (<span className="text-[10px] mono text-stone-500" title={new Date(lastSync).toLocaleString('en-IN')}>{syncing ? 'syncing…' : 'synced ' + ago}<span className="hidden sm:inline" data-tick={tick}/></span>);
+            })()}
           </div>
           <div className="flex items-center gap-1.5">
-            <button onClick={()=>window.print()} className="text-[9px] px-2 py-1.5 border border-stone-700 text-stone-400 hover:text-stone-200 rounded-sm uppercase">Print / PDF</button>
+            <select value={autoRefresh} onChange={e=>setAutoRefresh(parseInt(e.target.value,10))} className="text-[9px] mono bg-stone-800 border border-stone-700 text-stone-300 px-1.5 py-1.5 rounded-sm outline-none cursor-pointer" title="Auto-refresh">
+              <option value="0">⏸ Manual</option>
+              <option value="5">⟳ 5min</option>
+              <option value="15">⟳ 15min</option>
+              <option value="30">⟳ 30min</option>
+            </select>
+            <button onClick={()=>window.print()} className="text-[9px] px-2 py-1.5 border border-stone-700 text-stone-400 hover:text-stone-200 rounded-sm uppercase hidden sm:block">Print</button>
             <button onClick={sync} disabled={syncing} className="text-[9px] px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold rounded-sm disabled:opacity-50 uppercase tracking-widest">{syncing?<span className="spin">↻</span>:'Sync Now'}</button>
             <button onClick={onChangeToken} className="text-[9px] w-8 h-7 border border-stone-700 text-stone-500 hover:text-stone-300 rounded-sm flex items-center justify-center">⚙</button>
           </div>
@@ -1149,6 +1451,9 @@ function Dashboard({ token, onChangeToken }) {
 
         {/* EXECUTIVE SUMMARY — Goal / Where We Are / Status / What to Do */}
         <ExecutiveSummary kpiRows={kpiRows} phase={phase}/>
+
+        {/* CONVERSION FUNNEL · CRO diagnostic */}
+        <ConversionFunnelPanel data={data}/>
 
         {/* FUNNEL STAGE ALLOCATION */}
         <StagePanel data={data} phase={phase}/>
