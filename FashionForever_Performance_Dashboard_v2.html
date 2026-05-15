@@ -139,6 +139,46 @@ function evalTarget(value,band,inverse){
 function bandLabel(band,fmt){if(!band)return'—';const[lo,hi]=band;return fmt==='%'?`${lo}–${hi}%`:fmt==='x'?`${lo}–${hi}x`:fmt==='mo'?`${lo}–${hi} mo`:fmt==='L'?`${inrL(lo)} → ${inrL(hi)}`:`${inr(lo)} – ${inr(hi)}`;}
 function pctToTarget(value,band,inverse){if(value==null||!band)return 0;const[lo,hi]=band;if(inverse){if(value<=lo)return 100;if(value>=hi*1.5)return 0;return Math.max(0,Math.min(100,100-((value-lo)/(hi*1.5-lo))*100));}else{if(value>=hi)return 100;if(value<=0)return 0;return Math.max(0,Math.min(100,(value/lo)*100));}}
 
+// ── TAPG = Target / Achieved / Pending / Gap (the four-question framework) ──
+// For ratio metrics (ROAS, CPA, AOV, CTR, Frequency): target is a threshold, pending = improvement needed, gap = signed % deviation from target
+// For cumulative metrics (Spend, Revenue, Orders): target is a total goal over the period, pending = remaining work, gap = ahead/behind pace
+function tapg({target,achieved,inverse=false,cumulative=false,band=null}){
+  // status against band if provided, else against single target
+  let status='idle',pending=null,gap=null,gapPct=null;
+  if(achieved==null||target==null)return{target,achieved,pending,gap,gapPct,status};
+  if(cumulative){
+    pending=Math.max(0,target-achieved);
+    gap=achieved-target;  // positive=ahead, negative=behind
+    gapPct=target>0?+(gap/target*100).toFixed(1):null;
+    if(achieved>=target)status='on';
+    else if(achieved>=target*0.85)status='warn';
+    else status='off';
+  }else if(inverse){
+    // lower is better (CPA, frequency, cancel rate)
+    pending=achieved>target?+(achieved-target).toFixed(2):0;
+    gap=target-achieved;  // positive=under cap=good
+    gapPct=target>0?+((target-achieved)/target*100).toFixed(1):null;
+    if(band){const[lo,hi]=band;if(achieved<=lo)status='on';else if(achieved<=hi)status='warn';else status='off';}
+    else{if(achieved<=target)status='on';else if(achieved<=target*1.15)status='warn';else status='off';}
+  }else{
+    // higher is better (ROAS, AOV, CTR)
+    pending=achieved<target?+(target-achieved).toFixed(2):0;
+    gap=achieved-target;  // positive=above target=good
+    gapPct=target>0?+((achieved-target)/target*100).toFixed(1):null;
+    if(band){const[lo,hi]=band;if(achieved>=hi)status='on';else if(achieved>=lo)status='warn';else status='off';}
+    else{if(achieved>=target)status='on';else if(achieved>=target*0.85)status='warn';else status='off';}
+  }
+  return{target,achieved,pending,gap,gapPct,status};
+}
+
+// Number of days in the current selected date range (for cumulative pace calcs)
+function daysInRange(dailyData){if(!dailyData?.length)return 1;return dailyData.length;}
+
+// Status visual helpers
+const stColor=s=>({on:'text-emerald-400',warn:'text-amber-400',off:'text-red-400',idle:'text-stone-500'}[s]||'text-stone-500');
+const stDot=s=>({on:'bg-emerald-500',warn:'bg-amber-500',off:'bg-red-500',idle:'bg-stone-700'}[s]||'bg-stone-700');
+const stLabel=s=>({on:'ON TRACK',warn:'AT RISK',off:'BELOW',idle:'PENDING'}[s]||'—');
+
 // ── Meta API ────────────────────────────────────────────────────────────
 function findConv(row,type,src='actions'){
   for(const s of[src,'conversions','unique_actions']){const arr=row?.[s];if(!Array.isArray(arr))continue;for(const v of[type,`offsite_conversion.fb_pixel_${type}`,`website_${type}`]){const it=arr.find(a=>a.action_type===v);if(it){const x=parseFloat(it.value||0);if(x>0)return x;}}}return 0;
@@ -162,15 +202,19 @@ function buildKpis(row){
 function slotFor(name){if(!name)return null;const m=name.toUpperCase().match(/^(C\d+)[_\s\-·]/);return m&&SLOT_MAP[m[1]]?m[1]:null;}
 async function metaGet(token,path,params){const r=await fetch(`${BASE}/${path}?${params}&access_token=${token}`);const d=await r.json();if(d.error)throw new Error(d.error.message||'Meta API error');return d;}
 async function fetchAll(token,dateQ){
-  const[camps,acct,ci,daily]=await Promise.all([
+  const[camps,acct,ci,daily,campDaily]=await Promise.all([
     metaGet(token,`act_${ACCOUNT_ID}/campaigns`,`fields=id,name,status,effective_status,daily_budget,lifetime_budget,start_time,objective&limit=100`),
     metaGet(token,`act_${ACCOUNT_ID}/insights`,`fields=${FIELDS}&${dateQ}&${ATTR}`),
     metaGet(token,`act_${ACCOUNT_ID}/insights`,`fields=campaign_id,campaign_name,${FIELDS}&level=campaign&${dateQ}&${ATTR}&limit=50`),
     metaGet(token,`act_${ACCOUNT_ID}/insights`,`fields=${FIELDS}&${dateQ}&${ATTR}&time_increment=1&limit=90`),
+    metaGet(token,`act_${ACCOUNT_ID}/insights`,`fields=campaign_id,campaign_name,${FIELDS}&level=campaign&${dateQ}&${ATTR}&time_increment=1&limit=500`),
   ]);
   const acctK=buildKpis((acct.data||[])[0])||{};
   const im={};(ci.data||[]).forEach(r=>{im[r.campaign_id]=r;});
   const dailyData=(daily.data||[]).map(r=>({date:r.date_start,...buildKpis(r)}));
+  const campaignDaily={};
+  (campDaily.data||[]).forEach(r=>{const k=buildKpis(r);if(!campaignDaily[r.campaign_id])campaignDaily[r.campaign_id]=[];campaignDaily[r.campaign_id].push({date:r.date_start,...k});});
+  Object.keys(campaignDaily).forEach(id=>campaignDaily[id].sort((a,b)=>a.date.localeCompare(b.date)));
   const campaigns=(camps.data||[]).filter(c=>c.effective_status!=='DELETED').map(c=>{
     const k=buildKpis(im[c.id]);const slot=slotFor(c.name);const cfg=slot?SLOT_MAP[slot]:null;
     const eff=c.effective_status;const spend=k.spend||0;let status='active';
@@ -178,9 +222,9 @@ async function fetchAll(token,dateQ){
     else if(['DISAPPROVED','POLICY_VIOLATION'].includes(eff))status='disapproved';
     else if(!im[c.id]||spend===0)status='active_no_spend';
     else if(cfg&&spend>cfg.killSpend&&k.roas!==null&&k.roas<cfg.killRoas)status='kill';
-    return{id:c.id,name:c.name,slot,effectiveStatus:eff,dailyBudget:c.daily_budget?Math.round(parseInt(c.daily_budget)/100):null,startTime:c.start_time,objective:c.objective,status,...k};
+    return{id:c.id,name:c.name,slot,effectiveStatus:eff,dailyBudget:c.daily_budget?Math.round(parseInt(c.daily_budget)/100):null,startTime:c.start_time,objective:c.objective,status,daily:campaignDaily[c.id]||[],...k};
   }).sort((a,b)=>(b.spend||0)-(a.spend||0));
-  return{syncedAt:new Date().toISOString(),...acctK,campaigns:campaigns.filter(c=>c.slot),unmappedCampaigns:campaigns.filter(c=>!c.slot),dailyData};
+  return{syncedAt:new Date().toISOString(),...acctK,campaigns:campaigns.filter(c=>c.slot),unmappedCampaigns:campaigns.filter(c=>!c.slot),dailyData,campaignDaily};
 }
 async function fetchDetail(token,campaignId,dateQ){
   const filter=encodeURIComponent(JSON.stringify([{field:'campaign.id',operator:'EQUAL',value:campaignId}]));
@@ -326,58 +370,101 @@ function buildPlan(cfg,data,detail,dateLabel){
 // ════════════════════════════════════════════════════════════════════════
 
 // 1) OBJECTIVES — Target vs Actual for all Gold KPIs ───────────────────
-function ObjectivesPanel({data,actuals,phaseInfo}){
+// ── 1) SUMMARY VIEW (account total · 4-column Target/Achieved/Pending/Gap) ──
+function SummaryView({data,actuals,phaseInfo}){
   const[open,setOpen]=useState(true);
   const{phaseNo,dayOfPhase,phase}=phaseInfo;
-  const items=Object.entries(KPI_TARGETS).filter(([k,v])=>v.weight==='gold').map(([k,kpi])=>{
-    const band=getBandForPhase(kpi,phaseNo);
-    const actual=actuals[k];
-    const st=evalTarget(actual,band,kpi.inverse);
-    const pctT=pctToTarget(actual,band,kpi.inverse);
-    return{key:k,kpi,band,actual,st,pctT};
-  });
-  const onCount=items.filter(i=>i.st==='on').length;
-  const offCount=items.filter(i=>i.st==='off').length;
-  const idleCount=items.filter(i=>i.st==='idle').length;
+  const days=daysInRange(data?.dailyData);
+  // Build the rows. Each row: {label, kpi, t, a, p, g, gPct, st, fmt, note}
+  const rows=[];
+  // Cumulative spend pace: target = sum of campaign dailyBudgets × days
+  const totalDailyBudget=(data.campaigns||[]).reduce((s,c)=>s+(c.dailyBudget||0),0);
+  const expectedSpend=totalDailyBudget*days;
+  const sR=tapg({target:expectedSpend,achieved:data.spend||0,cumulative:true});
+  rows.push({label:'Spend (pace)',fmt:'₹',note:`${days} day${days>1?'s':''} × ₹${totalDailyBudget.toLocaleString('en-IN')}/day expected`,...sR});
+  // Revenue cumulative — target = expectedSpend × phase target ROAS
+  const expectedRev=expectedSpend*phase.target;
+  const rR=tapg({target:expectedRev,achieved:data.revenue||0,cumulative:true});
+  rows.push({label:'Revenue (pace)',fmt:'₹',note:`expected at ${phase.target}x MER target`,...rR});
+  // Purchases cumulative — target = expectedSpend / avg targetCpa
+  const avgTargetCpa=(SLOTS.reduce((s,c)=>s+c.targetCpa,0)/SLOTS.length);
+  const expectedOrders=Math.round(expectedSpend/avgTargetCpa);
+  const oR=tapg({target:expectedOrders,achieved:data.purchases||0,cumulative:true});
+  rows.push({label:'Orders (pace)',fmt:'n',note:`at avg target CPA ₹${Math.round(avgTargetCpa).toLocaleString('en-IN')}`,...oR});
+  // MER (ratio)
+  const merBand=getBandForPhase(KPI_TARGETS.mer,phaseNo);
+  const merR=tapg({target:merBand?merBand[0]:phase.target,achieved:data.roas,band:merBand});
+  rows.push({label:'MER · Blended ROAS',fmt:'x',note:`P${phaseNo} band ${bandLabel(merBand,'x')}`,...merR});
+  // AOV
+  const aovBand=getBandForPhase(KPI_TARGETS.aov,phaseNo);
+  const aovR=tapg({target:aovBand?aovBand[0]:7800,achieved:data.aov,band:aovBand});
+  rows.push({label:'AOV',fmt:'₹',note:`Core Pair anchor ₹7,800`,...aovR});
+  // CAC (inverse)
+  const cacBand=getBandForPhase(KPI_TARGETS.cac,phaseNo);
+  const cacR=tapg({target:cacBand?cacBand[1]:3200,achieved:data.cpa,inverse:true,band:cacBand});
+  rows.push({label:'CAC / CPA',fmt:'₹',inverse:true,note:`P${phaseNo} ceiling ${bandLabel(cacBand,'₹')}`,...cacR});
+  // Contribution Margin (cumulative — target ≥ 0)
+  const cm=actuals.contribMargin;
+  const cmR=tapg({target:0,achieved:cm,cumulative:false});
+  // Override status: ≥0 = on, between -10% rev and 0 = warn, below = off
+  if(cm!=null){const rev=data.revenue||1;if(cm>=0)cmR.status='on';else if(cm>=-rev*0.10)cmR.status='warn';else cmR.status='off';cmR.gap=cm;cmR.gapPct=rev>0?+(cm/rev*100).toFixed(1):null;cmR.pending=cm<0?Math.abs(cm):0;}
+  rows.push({label:'Contribution Margin',fmt:'L',note:`Revenue × 55% − Ad Spend − ₹120/order ship`,...cmR});
+  // Frequency (inverse)
+  const fR=tapg({target:2.5,achieved:data.frequency,inverse:true});
+  rows.push({label:'Frequency',fmt:'x',inverse:true,note:`cap 2.5x · creative fatigue above`,...fR});
+
+  const onN=rows.filter(r=>r.status==='on').length;
+  const offN=rows.filter(r=>r.status==='off').length;
+  const warnN=rows.filter(r=>r.status==='warn').length;
+
+  const fmtV=(v,fmt,inverse)=>{if(v==null)return'—';if(fmt==='x')return Number(v).toFixed(2)+'x';if(fmt==='₹')return inr(v);if(fmt==='L')return inrL(v);if(fmt==='n')return num(v);if(fmt==='%')return Number(v).toFixed(1)+'%';return v;};
+  const gapSign=(g,inverse)=>{if(g==null)return'';if(inverse)return g>=0?'▼':'▲';return g>=0?'▲':'▼';};
+  const gapColor=(g,status,inverse)=>{if(g==null)return'text-stone-500';if(status==='on')return'text-emerald-400';if(status==='warn')return'text-amber-400';return'text-red-400';};
+
   return(<div className="card mb-3">
     <div className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[.02] select-none" onClick={()=>setOpen(!open)}>
       <div className="flex items-center gap-3 min-w-0">
-        <div><div className="sec-hd">Objectives · Phase {phaseNo} · Day {dayOfPhase}/{phase.days}</div>
-          <div className="flex items-baseline gap-2 mt-0.5"><span className="text-xl font-bold mono text-stone-100">Target vs Actual</span></div></div>
+        <div><div className="sec-hd">Total Summary · Phase {phaseNo} · Day {dayOfPhase}/{phase.days} · Range {days}d</div>
+          <div className="flex items-baseline gap-2 mt-0.5"><span className="text-xl font-bold text-stone-100">Target · Achieved · Pending · Gap</span></div></div>
         <div className="hidden md:flex items-center gap-2 ml-3">
-          <span className="chip on">{onCount} on track</span>
-          {offCount>0&&<span className="chip off">{offCount} below</span>}
-          {idleCount>0&&<span className="chip idle">{idleCount} pending data</span>}
+          <span className="chip on">{onN} on track</span>
+          {warnN>0&&<span className="chip warn">{warnN} at risk</span>}
+          {offN>0&&<span className="chip off">{offN} below</span>}
         </div>
       </div>
       <span className="text-stone-600">{open?'▲':'▼'}</span>
     </div>
-    {open&&(<div className="border-t border-stone-800/40 p-3 sd">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-        {items.map(it=>{
-          const stTxt={on:'ON TRACK',warn:'AT RISK',off:'BELOW',idle:'PENDING'}[it.st];
-          const stCol={on:'text-emerald-400',warn:'text-amber-400',off:'text-red-400',idle:'text-stone-500'}[it.st];
-          const barCol={on:'#10b981',warn:'#f59e0b',off:'#ef4444',idle:'#57534e'}[it.st];
-          const showVal=it.actual!=null?fmtKpi(it.actual,it.kpi.fmt):(it.kpi.source==='shopify'?'—':it.kpi.source==='meta_ga'?'—':'—');
-          return(<div key={it.key} className="card p-3 !bg-stone-950/40">
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <div className="min-w-0"><div className="text-[10px] uppercase text-stone-500 tracking-wider leading-tight">{it.kpi.label}</div></div>
-              <span className={`flag-dot ${it.st}`} title={stTxt}/>
+    {open&&(<div className="border-t border-stone-800/40 sd">
+      {/* Header row */}
+      <div className="hidden md:grid items-center px-4 py-2 border-b border-stone-800/40 text-[9px] uppercase tracking-widest text-stone-500 mono" style={{gridTemplateColumns:'2fr 1.1fr 1.1fr 1.1fr 1.1fr 0.6fr'}}>
+        <div>KPI</div><div className="text-right">Target</div><div className="text-right">Achieved</div><div className="text-right">Pending</div><div className="text-right">Gap</div><div className="text-right">Status</div>
+      </div>
+      <div className="divide-y divide-stone-800/30">
+        {rows.map((r,i)=>(<div key={i} className="px-4 py-2.5 grid grid-cols-2 md:grid-cols-[2fr_1.1fr_1.1fr_1.1fr_1.1fr_0.6fr] gap-y-1 gap-x-2 items-center hover:bg-white/[.01]">
+          {/* KPI label */}
+          <div className="col-span-2 md:col-span-1">
+            <div className="flex items-center gap-2">
+              <span className={`w-1.5 h-1.5 rounded-full ${stDot(r.status)}`}/>
+              <span className="text-sm font-semibold text-stone-100">{r.label}</span>
             </div>
-            <div className="flex items-baseline justify-between gap-2 mb-1.5">
-              <span className={`text-xl font-bold mono ${stCol}`}>{showVal}</span>
-              <span className="text-[9px] mono text-stone-600">{stTxt}</span>
+            <div className="text-[10px] text-stone-600 mono mt-0.5 ml-3.5">{r.note}</div>
+          </div>
+          {/* Target */}
+          <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Target</div><div className="mono text-sm text-stone-300">{fmtV(r.target,r.fmt,r.inverse)}{r.inverse?<span className="text-[9px] text-stone-600"> max</span>:''}</div></div>
+          {/* Achieved */}
+          <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Achieved</div><div className={`mono text-base font-bold ${stColor(r.status)}`}>{fmtV(r.achieved,r.fmt,r.inverse)}</div></div>
+          {/* Pending */}
+          <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Pending</div><div className="mono text-sm text-stone-300">{r.pending==null?'—':r.pending===0?<span className="text-emerald-500">0</span>:fmtV(r.pending,r.fmt==='L'?'₹':r.fmt,false)}</div></div>
+          {/* Gap */}
+          <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Gap</div>
+            <div className={`mono text-sm font-bold ${gapColor(r.gap,r.status,r.inverse)}`}>
+              {r.gapPct==null?'—':<>{r.gapPct>=0?'+':''}{r.gapPct}%</>}
             </div>
-            <div className="tgt-bar mb-1.5"><div className="tgt-bar-fill" style={{width:it.pctT+'%',background:barCol}}/></div>
-            <div className="flex items-center justify-between text-[10px] mono">
-              <span className="text-stone-600">Target P{phaseNo}</span>
-              <span className="text-stone-300">{bandLabel(it.band,it.kpi.fmt)}</span>
-            </div>
-            {it.kpi.source==='shopify'&&it.actual==null&&<div className="text-[9px] text-stone-600 mt-1.5 leading-snug">⌐ Awaiting Shopify wiring</div>}
-            {it.kpi.source==='meta_ga'&&it.actual==null&&<div className="text-[9px] text-stone-600 mt-1.5 leading-snug">⌐ Needs Meta+GA4 join</div>}
-            {it.kpi.baseline!=null&&<div className="text-[9px] text-stone-700 mt-1">Baseline: {fmtKpi(it.kpi.baseline,it.kpi.fmt)}</div>}
-          </div>);
-        })}
+            <div className="text-[9px] text-stone-600 mono">{r.gap==null?'':(r.gap>=0?'+':'')+fmtV(Math.abs(r.gap),r.fmt==='L'?'₹':r.fmt,false).replace('₹','₹')}</div>
+          </div>
+          {/* Status */}
+          <div className="text-right col-span-2 md:col-span-1"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Status</div><span className={`chip ${r.status} text-[9px]`}>{stLabel(r.status)}</span></div>
+        </div>))}
       </div>
     </div>)}
   </div>);
@@ -532,15 +619,92 @@ function MarginWaterfall({profit}){
 }
 
 // 4) INTERACTIVE TRENDS — filterable charts ─────────────────────────────
+// ── CAMPAIGN-LEVEL TAPG TABLE (rendered inside ExpandedCampaign modal) ──
+function CampaignTAPGTable({cfg,data,days}){
+  if(!data)return null;
+  const rows=[];
+  // Spend pace (cumulative)
+  if(cfg.dailyBudget==null){
+    // Use targetCpa × expected orders or killSpend as a proxy
+  }
+  const dailyBudget=data.dailyBudget||0;
+  const expectedSpend=dailyBudget*days;
+  if(expectedSpend>0){
+    const r=tapg({target:expectedSpend,achieved:data.spend||0,cumulative:true});
+    rows.push({label:'Spend (pace)',fmt:'₹',note:`${days}d × ₹${dailyBudget.toLocaleString('en-IN')}/day budget`,...r});
+  }
+  // ROAS — target = killRoas (floor), and phase target
+  const phase=currentPhase().phase;
+  const roasTarget=Math.max(cfg.killRoas,phase.target*0.9); // realistic per-campaign target
+  rows.push({label:'ROAS',fmt:'x',note:`kill <${cfg.killRoas}x · phase floor ${phase.target}x`,...tapg({target:cfg.killRoas,achieved:data.roas})});
+  // CPA — target = cfg.targetCpa (inverse)
+  rows.push({label:'CPA',fmt:'₹',inverse:true,note:`ceiling ${inr(cfg.targetCpa)}`,...tapg({target:cfg.targetCpa,achieved:data.cpa,inverse:true})});
+  // AOV — target = cfg.targetAov
+  rows.push({label:'AOV',fmt:'₹',note:cfg.product==='trio'?`Trio anchor ₹10,950`:cfg.product==='core_pair'?`Core Pair anchor ₹7,800`:`mixed cart target`,...tapg({target:cfg.targetAov,achieved:data.aov})});
+  // Orders (cumulative — expected = expectedSpend / targetCpa)
+  if(expectedSpend>0){
+    const expectedOrders=Math.max(1,Math.round(expectedSpend/cfg.targetCpa));
+    rows.push({label:'Orders (pace)',fmt:'n',note:`at target CPA ${inr(cfg.targetCpa)}`,...tapg({target:expectedOrders,achieved:data.purchases||0,cumulative:true})});
+  }
+  // Revenue (cumulative — expected = expectedSpend × roasTarget)
+  if(expectedSpend>0){
+    const expectedRev=Math.round(expectedSpend*cfg.killRoas);
+    rows.push({label:'Revenue (pace)',fmt:'₹',note:`expected at kill-floor ${cfg.killRoas}x`,...tapg({target:expectedRev,achieved:data.revenue||0,cumulative:true})});
+  }
+  // CTR — target ≥ 1.5%
+  rows.push({label:'CTR',fmt:'%',note:`benchmark ≥1.5%`,...tapg({target:1.5,achieved:data.ctr})});
+  // CPC — target ≤ ₹60 (inverse)
+  rows.push({label:'CPC',fmt:'₹',inverse:true,note:`benchmark ≤₹60`,...tapg({target:60,achieved:data.cpc,inverse:true})});
+  // Frequency (inverse, cap)
+  rows.push({label:'Frequency',fmt:'x',inverse:true,note:`cap ${cfg.freqMax}x`,...tapg({target:cfg.freqMax,achieved:data.frequency,inverse:true})});
+  // IC→Purchase
+  if(data.icToPurchase!=null)rows.push({label:'IC → Purchase',fmt:'%',note:`Razorpay health · ≥40%`,...tapg({target:40,achieved:data.icToPurchase})});
+
+  const fmtV=(v,fmt)=>{if(v==null)return'—';if(fmt==='x')return Number(v).toFixed(2)+'x';if(fmt==='₹')return inr(v);if(fmt==='L')return inrL(v);if(fmt==='n')return num(v);if(fmt==='%')return Number(v).toFixed(1)+'%';return v;};
+  const gapColor=(status)=>status==='on'?'text-emerald-400':status==='warn'?'text-amber-400':status==='off'?'text-red-400':'text-stone-500';
+  const onN=rows.filter(r=>r.status==='on').length;
+  const offN=rows.filter(r=>r.status==='off').length;
+  const warnN=rows.filter(r=>r.status==='warn').length;
+
+  return(<div className="card">
+    <div className="px-4 py-2.5 border-b border-stone-800/40 flex flex-wrap items-baseline gap-2">
+      <span className="text-sm font-semibold text-stone-100">Target · Achieved · Pending · Gap</span>
+      <span className="text-[10px] text-stone-500">campaign-level over {days} day{days>1?'s':''}</span>
+      <span className="ml-auto flex items-center gap-1.5">
+        <span className="chip on text-[9px]">{onN} on</span>
+        {warnN>0&&<span className="chip warn text-[9px]">{warnN} risk</span>}
+        {offN>0&&<span className="chip off text-[9px]">{offN} below</span>}
+      </span>
+    </div>
+    <div className="hidden md:grid items-center px-4 py-2 border-b border-stone-800/30 text-[9px] uppercase tracking-widest text-stone-500 mono" style={{gridTemplateColumns:'1.6fr 1fr 1fr 1fr 1fr 0.7fr'}}>
+      <div>KPI</div><div className="text-right">Target</div><div className="text-right">Achieved</div><div className="text-right">Pending</div><div className="text-right">Gap</div><div className="text-right">Status</div>
+    </div>
+    <div className="divide-y divide-stone-800/30">
+      {rows.map((r,i)=>(<div key={i} className="px-4 py-2.5 grid grid-cols-2 md:grid-cols-[1.6fr_1fr_1fr_1fr_1fr_0.7fr] gap-y-1 gap-x-2 items-center hover:bg-white/[.01]">
+        <div className="col-span-2 md:col-span-1">
+          <div className="flex items-center gap-2"><span className={`w-1.5 h-1.5 rounded-full ${stDot(r.status)}`}/><span className="text-sm font-semibold text-stone-100">{r.label}</span></div>
+          <div className="text-[10px] text-stone-600 mono mt-0.5 ml-3.5">{r.note}</div>
+        </div>
+        <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Target</div><div className="mono text-sm text-stone-300">{fmtV(r.target,r.fmt)}{r.inverse?<span className="text-[9px] text-stone-600"> max</span>:''}</div></div>
+        <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Achieved</div><div className={`mono text-base font-bold ${stColor(r.status)}`}>{fmtV(r.achieved,r.fmt)}</div></div>
+        <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Pending</div><div className="mono text-sm text-stone-300">{r.pending==null?'—':r.pending===0?<span className="text-emerald-500">0</span>:fmtV(r.pending,r.fmt)}</div></div>
+        <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Gap</div>
+          <div className={`mono text-sm font-bold ${gapColor(r.status)}`}>{r.gapPct==null?'—':<>{r.gapPct>=0?'+':''}{r.gapPct}%</>}</div>
+          <div className="text-[9px] text-stone-600 mono">{r.gap==null?'':(r.gap>=0?'+':'')+fmtV(Math.abs(r.gap),r.fmt)}</div>
+        </div>
+        <div className="text-right col-span-2 md:col-span-1"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Status</div><span className={`chip ${r.status} text-[9px]`}>{stLabel(r.status)}</span></div>
+      </div>))}
+    </div>
+  </div>);
+}
+
 function TrendsPanel({data}){
   const[open,setOpen]=useState(true);
   const[metric,setMetric]=useState('roas');
-  const[stage,setStage]=useState('all');
+  const[campSel,setCampSel]=useState('all'); // 'all' | 'prospecting' | 'retargeting' | 'reactivation' | campaign.id
   if(!data?.dailyData?.length)return null;
-  const validDaily=data.dailyData.filter(d=>(d.spend||0)>0);
-  if(!validDaily.length)return null;
   const METRICS={
-    roas:{label:'ROAS',fmt:'x',target:1.6,kill:1.4,colour:'#d97706',accessor:d=>d.roas},
+    roas:{label:'ROAS',fmt:'x',target:1.6,kill:1.4,colour:'#f59e0b',accessor:d=>d.roas},
     spend:{label:'Spend',fmt:'₹',target:null,kill:null,colour:'#a8a29e',accessor:d=>d.spend},
     revenue:{label:'Revenue',fmt:'₹',target:null,kill:null,colour:'#10b981',accessor:d=>d.revenue},
     cm:{label:'Contribution Margin',fmt:'₹',target:0,kill:null,colour:'#f59e0b',accessor:d=>{const p=calcProfitability(d);return p?p.cm:null;}},
@@ -549,24 +713,51 @@ function TrendsPanel({data}){
     purchases:{label:'Orders',fmt:'n',target:null,kill:null,colour:'#fbbf24',accessor:d=>d.purchases}
   };
   const M=METRICS[metric];
+
+  // Build the time series depending on selection
+  const allCamps=data.campaigns||[];
+  let series=[],seriesLabel='Account total';
+  if(campSel==='all'){
+    series=data.dailyData.filter(d=>(d.spend||0)>0);
+    seriesLabel='Account total';
+  }else if(['prospecting','retargeting','reactivation'].includes(campSel)){
+    // Aggregate per-day across all campaigns in this funnel stage
+    const stageCamps=allCamps.filter(c=>SLOT_MAP[c.slot]?.type===campSel);
+    const dayMap={};
+    stageCamps.forEach(c=>{(c.daily||[]).forEach(d=>{if(!dayMap[d.date])dayMap[d.date]={date:d.date,spend:0,revenue:0,purchases:0,impressions:0,clicks:0,ic:0,atc:0,linkClicks:0,reach:0};const agg=dayMap[d.date];agg.spend+=d.spend||0;agg.revenue+=d.revenue||0;agg.purchases+=d.purchases||0;agg.impressions+=d.impressions||0;agg.clicks+=d.clicks||0;agg.ic+=d.ic||0;agg.atc+=d.atc||0;agg.linkClicks+=d.linkClicks||0;agg.reach=Math.max(agg.reach,d.reach||0);});});
+    series=Object.values(dayMap).sort((a,b)=>a.date.localeCompare(b.date)).map(d=>({...d,roas:d.spend>0?+(d.revenue/d.spend).toFixed(2):null,cpa:d.purchases>0?Math.round(d.spend/d.purchases):null,aov:d.purchases>0?Math.round(d.revenue/d.purchases):null,ctr:d.impressions>0?+((d.clicks/d.impressions)*100).toFixed(2):null,cpc:d.clicks>0?Math.round(d.spend/d.clicks):null,frequency:d.reach>0?+(d.impressions/d.reach).toFixed(2):null,icToPurchase:d.ic>0?+((d.purchases/d.ic)*100).toFixed(1):null}));
+    seriesLabel=campSel.toUpperCase()+' stage · '+stageCamps.length+' camp';
+  }else{
+    // Specific campaign
+    const c=allCamps.find(x=>x.id===campSel);
+    if(c){series=(c.daily||[]).filter(d=>(d.spend||0)>0);seriesLabel=`${c.slot} · ${c.name}`;}
+  }
+
   return(<div className="card mb-3">
     <div className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[.02] select-none" onClick={()=>setOpen(!open)}>
-      <div className="min-w-0"><div className="sec-hd">Trends · Account-level · {validDaily.length} days</div>
+      <div className="min-w-0"><div className="sec-hd">Trends · {seriesLabel} · {series.length} days</div>
         <div className="flex items-baseline gap-2 mt-0.5"><span className="text-xl font-bold mono text-stone-100">{M.label} over time</span></div></div>
       <span className="text-stone-600">{open?'▲':'▼'}</span>
     </div>
     {open&&(<div className="border-t border-stone-800/40 p-4 sd">
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-stone-800/30">
+      {/* Filters · metric */}
+      <div className="flex flex-wrap items-center gap-2 mb-2.5">
         <span className="sec-hd !mb-0">Metric</span>
         {Object.entries(METRICS).map(([k,v])=>(<button key={k} onClick={e=>{e.stopPropagation();setMetric(k);}} className={`filter-btn ${metric===k?'active':''}`}>{v.label}</button>))}
-        <span className="text-stone-700 mx-1">·</span>
-        <span className="sec-hd !mb-0">Stage</span>
-        {[['all','All'],['prospecting','Prospect'],['retargeting','Retarget'],['reactivation','React']].map(([k,l])=>(<button key={k} onClick={e=>{e.stopPropagation();setStage(k);}} className={`filter-btn ${stage===k?'active':''}`}>{l}</button>))}
-        {stage!=='all'&&<span className="text-[9px] text-stone-600 ml-2 italic">Daily-by-stage requires per-campaign daily fetch (next iteration); showing account-level for now.</span>}
       </div>
-      <TimeSeriesChart data={validDaily} metric={M}/>
-      {/* Quick aggregate by stage (snapshot, not daily) */}
+      {/* Filters · campaign selection */}
+      <div className="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-stone-800/30">
+        <span className="sec-hd !mb-0">Scope</span>
+        <button onClick={e=>{e.stopPropagation();setCampSel('all');}} className={`filter-btn ${campSel==='all'?'active':''}`}>Total</button>
+        <span className="text-stone-700 mx-0.5">·</span>
+        <span className="text-[9px] text-stone-600 uppercase tracking-widest">Stages</span>
+        {[['prospecting','Prospect'],['retargeting','Retarget'],['reactivation','React']].map(([k,l])=>(<button key={k} onClick={e=>{e.stopPropagation();setCampSel(k);}} className={`filter-btn ${campSel===k?'active':''}`}>{l}</button>))}
+        <span className="text-stone-700 mx-0.5">·</span>
+        <span className="text-[9px] text-stone-600 uppercase tracking-widest">Campaign</span>
+        {allCamps.filter(c=>c.slot).sort((a,b)=>a.slot.localeCompare(b.slot)).map(c=>(<button key={c.id} onClick={e=>{e.stopPropagation();setCampSel(c.id);}} className={`filter-btn ${campSel===c.id?'active':''}`} title={c.name}>{c.slot}</button>))}
+      </div>
+      {series.length===0?<div className="text-stone-500 text-xs py-8 text-center">No spend in this scope for the selected range.</div>:<TimeSeriesChart data={series} metric={M}/>}
+      {/* Stage aggregate bar — always show, useful comparison */}
       <div className="mt-4 pt-3 border-t border-stone-800/30">
         <div className="sec-hd mb-2">Funnel-stage snapshot · {METRICS[metric].label}</div>
         <StageAggregate campaigns={data.campaigns||[]} metric={metric} metricCfg={M}/>
@@ -576,34 +767,76 @@ function TrendsPanel({data}){
 }
 
 function TimeSeriesChart({data,metric}){
-  const W=760,H=220,P=36;
+  const W=820,H=260,P=44,PB=42; // wider; reserve bottom for x labels + more padding
   const pts=data.map(d=>({date:d.date,v:metric.accessor(d)})).filter(p=>p.v!=null);
   if(!pts.length)return<div className="text-stone-500 text-xs py-8 text-center">No data for this metric in the selected range.</div>;
   const vals=pts.map(p=>p.v);
   const mn=Math.min(0,...vals,metric.target||0,metric.kill||0);
-  const mx=Math.max(...vals,metric.target||0,metric.kill||0)*1.1;
-  const scale=v=>H-P-((v-mn)/(mx-mn))*(H-P*2);
+  const mx=Math.max(...vals,metric.target||0,metric.kill||0)*1.15;
+  const scale=v=>H-PB-((v-mn)/(mx-mn))*(H-P-PB);
   const xStep=pts.length>1?(W-P*2)/(pts.length-1):0;
   const x=i=>P+i*xStep;
   const path=pts.map((p,i)=>(i===0?'M':'L')+x(i)+','+scale(p.v)).join(' ');
-  const area=path+` L${x(pts.length-1)},${scale(0)} L${x(0)},${scale(0)} Z`;
-  const fmtV=v=>metric.fmt==='₹'?inrL(v):metric.fmt==='x'?v.toFixed(2)+'x':metric.fmt==='%'?v.toFixed(1)+'%':num(v);
-  const tickStep=Math.max(1,Math.floor(pts.length/8));
-  return(<svg viewBox={`0 0 ${W} ${H+18}`} className="w-full" style={{maxHeight:'260px'}}>
-    {/* Y axis grid */}
-    {[0,0.25,0.5,0.75,1].map((p,i)=>{const y=P+p*(H-P*2);const v=mx-p*(mx-mn);return(<g key={i}><line x1={P} y1={y} x2={W-P} y2={y} stroke="#292524" strokeWidth="1" strokeDasharray={i===0||i===4?'':'2,3'}/><text x={P-6} y={y+3} fill="#57534e" fontSize="9" textAnchor="end" fontFamily="IBM Plex Mono">{fmtV(v)}</text></g>);})}
-    {/* Target band */}
-    {metric.target!=null&&<g><line x1={P} y1={scale(metric.target)} x2={W-P} y2={scale(metric.target)} stroke="#d97706" strokeWidth="1.5" strokeDasharray="5,3"/><text x={W-P-2} y={scale(metric.target)-3} fill="#d97706" fontSize="9" textAnchor="end" fontFamily="IBM Plex Mono">target {fmtV(metric.target)}</text></g>}
-    {metric.kill!=null&&<g><line x1={P} y1={scale(metric.kill)} x2={W-P} y2={scale(metric.kill)} stroke="#7c2d12" strokeWidth="1" strokeDasharray="3,3"/><text x={W-P-2} y={scale(metric.kill)-3} fill="#7c2d12" fontSize="9" textAnchor="end" fontFamily="IBM Plex Mono">{metric.inverse?'cap':'kill'} {fmtV(metric.kill)}</text></g>}
-    {/* Area */}
-    <path d={area} fill={metric.colour} opacity="0.08"/>
-    {/* Line */}
-    <path d={path} fill="none" stroke={metric.colour} strokeWidth="2" strokeLinejoin="round"/>
-    {/* Points + values */}
-    {pts.map((p,i)=>{const xx=x(i),yy=scale(p.v);const onTarget=metric.target!=null?(metric.inverse?p.v<=metric.target:p.v>=metric.target):true;return(<g key={i}><circle cx={xx} cy={yy} r="3" fill={onTarget?metric.colour:'#ef4444'} stroke="#0d0c0b" strokeWidth="1.5"/></g>);})}
-    {/* X labels */}
-    {pts.map((p,i)=>{if(i%tickStep!==0&&i!==pts.length-1)return null;const dt=new Date(p.date+'T12:00:00');return(<text key={i} x={x(i)} y={H+12} fill="#57534e" fontSize="9" textAnchor="middle" fontFamily="IBM Plex Mono">{dt.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</text>);})}
-  </svg>);
+  const area=path+` L${x(pts.length-1)},${scale(Math.max(0,mn))} L${x(0)},${scale(Math.max(0,mn))} Z`;
+  const fmtV=(v,compact=false)=>{
+    if(v==null)return'—';
+    if(metric.fmt==='x')return Number(v).toFixed(2)+'x';
+    if(metric.fmt==='%')return Number(v).toFixed(1)+'%';
+    if(metric.fmt==='₹'){if(compact){const a=Math.abs(v);if(a>=100000)return(v<0?'−₹':'₹')+Math.abs(v/100000).toFixed(1)+'L';if(a>=1000)return(v<0?'−₹':'₹')+Math.abs(v/1000).toFixed(1)+'k';return inr(v);}return inr(v);}
+    return num(v);
+  };
+  // Compact value formatter for inline labels (short)
+  const fmtLabel=v=>fmtV(v,true);
+  // How many value labels can we show without overlap? Approx 50px per label.
+  const labelEvery=Math.max(1,Math.ceil(pts.length/12));
+  const xTickStep=Math.max(1,Math.ceil(pts.length/8));
+  return(<div style={{position:'relative'}}>
+    <svg viewBox={`0 0 ${W} ${H+18}`} className="w-full" style={{maxHeight:'320px'}} preserveAspectRatio="xMidYMid meet">
+      {/* Y axis grid */}
+      {[0,0.25,0.5,0.75,1].map((p,i)=>{const y=P+p*(H-P-PB);const v=mx-p*(mx-mn);return(<g key={i}><line x1={P} y1={y} x2={W-P} y2={y} stroke="#292524" strokeWidth="1" strokeDasharray={i===0||i===4?'':'2,3'}/><text x={P-6} y={y+3} fill="#78716c" fontSize="9" textAnchor="end" fontFamily="IBM Plex Mono">{fmtLabel(v)}</text></g>);})}
+      {/* Target band line */}
+      {metric.target!=null&&<g><line x1={P} y1={scale(metric.target)} x2={W-P} y2={scale(metric.target)} stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="5,3"/><rect x={W-P-92} y={scale(metric.target)-13} width="92" height="13" fill="#0d0c0b"/><text x={W-P-2} y={scale(metric.target)-3} fill="#f59e0b" fontSize="9.5" textAnchor="end" fontFamily="IBM Plex Mono" fontWeight="bold">target {fmtLabel(metric.target)}</text></g>}
+      {metric.kill!=null&&<g><line x1={P} y1={scale(metric.kill)} x2={W-P} y2={scale(metric.kill)} stroke="#dc2626" strokeWidth="1" strokeDasharray="3,3"/><rect x={W-P-92} y={scale(metric.kill)+3} width="92" height="13" fill="#0d0c0b"/><text x={W-P-2} y={scale(metric.kill)+13} fill="#dc2626" fontSize="9.5" textAnchor="end" fontFamily="IBM Plex Mono" fontWeight="bold">{metric.inverse?'cap':'kill'} {fmtLabel(metric.kill)}</text></g>}
+      {/* Area fill */}
+      <path d={area} fill={metric.colour} opacity="0.10"/>
+      {/* Line */}
+      <path d={path} fill="none" stroke={metric.colour} strokeWidth="2.2" strokeLinejoin="round"/>
+      {/* Points + inline value labels */}
+      {pts.map((p,i)=>{
+        const xx=x(i),yy=scale(p.v);
+        const onTarget=metric.target!=null?(metric.inverse?p.v<=metric.target:p.v>=metric.target):true;
+        const ringCol=onTarget?metric.colour:'#ef4444';
+        // Place label above or below depending on position relative to mid
+        const labelAbove=yy>(P+(H-P-PB)*0.45);
+        const ly=labelAbove?yy-9:yy+15;
+        const showLabel=(i%labelEvery===0)||i===pts.length-1||i===0;
+        return(<g key={i}>
+          <circle cx={xx} cy={yy} r="3.5" fill={ringCol} stroke="#0d0c0b" strokeWidth="1.5"/>
+          {showLabel&&<g>
+            <rect x={xx-22} y={ly-9} width="44" height="13" fill="#0d0c0b" opacity="0.85" rx="2"/>
+            <text x={xx} y={ly+1} fill={onTarget?'#e7e5e4':'#fca5a5'} fontSize="9.5" textAnchor="middle" fontFamily="IBM Plex Mono" fontWeight="bold">{fmtLabel(p.v)}</text>
+          </g>}
+        </g>);
+      })}
+      {/* X-axis labels */}
+      {pts.map((p,i)=>{if(i%xTickStep!==0&&i!==pts.length-1)return null;const dt=new Date(p.date+'T12:00:00');return(<text key={i} x={x(i)} y={H+12} fill="#78716c" fontSize="9" textAnchor="middle" fontFamily="IBM Plex Mono">{dt.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</text>);})}
+      {/* Latest reading callout (right edge) */}
+      {pts.length>0&&(()=>{const last=pts[pts.length-1];const xx=x(pts.length-1);const yy=scale(last.v);return(<g>
+        <line x1={xx} y1={P} x2={xx} y2={H-PB} stroke={metric.colour} strokeWidth="0.5" strokeDasharray="2,3" opacity="0.4"/>
+        <circle cx={xx} cy={yy} r="6" fill="none" stroke={metric.colour} strokeWidth="1.5" opacity="0.7"/>
+      </g>);})()}
+    </svg>
+    {/* Latest + summary stat strip below chart */}
+    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[10px] mono">
+      <div className="flex items-center gap-3">
+        <span className="text-stone-500">Latest <span className="text-stone-100 font-bold ml-1">{fmtLabel(pts[pts.length-1].v)}</span></span>
+        <span className="text-stone-500">Avg <span className="text-stone-300 ml-1">{fmtLabel(vals.reduce((s,v)=>s+v,0)/vals.length)}</span></span>
+        <span className="text-stone-500">Min <span className="text-stone-300 ml-1">{fmtLabel(Math.min(...vals))}</span></span>
+        <span className="text-stone-500">Max <span className="text-stone-300 ml-1">{fmtLabel(Math.max(...vals))}</span></span>
+      </div>
+      {metric.target!=null&&<span className="text-stone-500">Days on target <span className="text-stone-100 font-bold ml-1">{pts.filter(p=>metric.inverse?p.v<=metric.target:p.v>=metric.target).length}/{pts.length}</span></span>}
+    </div>
+  </div>);
 }
 
 function StageAggregate({campaigns,metric,metricCfg}){
@@ -865,8 +1098,19 @@ function PhaseTracker({dailyData}){
   </div>);
 }
 
-function ExpandedCampaign({cfg,data,detail,loading,onClose,onReload,dateLabel}){
+function ExpandedCampaign({cfg,data,detail,loading,onClose,onReload,dateLabel,days}){
   const plan=buildPlan(cfg,data,detail,dateLabel);
+  const[chartMetric,setChartMetric]=useState('roas');
+  const dailySeries=(data.daily||[]).filter(d=>(d.spend||0)>0);
+  const CHART_M={
+    roas:{label:'ROAS',fmt:'x',target:cfg.killRoas,kill:cfg.killRoas*0.9,colour:'#f59e0b',accessor:d=>d.roas},
+    spend:{label:'Spend',fmt:'₹',target:null,kill:null,colour:'#a8a29e',accessor:d=>d.spend},
+    revenue:{label:'Revenue',fmt:'₹',target:null,kill:null,colour:'#10b981',accessor:d=>d.revenue},
+    cpa:{label:'CPA',fmt:'₹',target:cfg.targetCpa,kill:cfg.targetCpa*1.25,colour:'#f87171',accessor:d=>d.cpa,inverse:true},
+    aov:{label:'AOV',fmt:'₹',target:cfg.targetAov,kill:cfg.targetAov*0.7,colour:'#34d399',accessor:d=>d.aov},
+    purchases:{label:'Orders',fmt:'n',target:null,kill:null,colour:'#fbbf24',accessor:d=>d.purchases},
+    frequency:{label:'Frequency',fmt:'x',target:cfg.freqMax,kill:cfg.freqMax*1.2,colour:'#fb923c',accessor:d=>d.frequency,inverse:true}
+  };
   return(<div className="fixed inset-0 z-50 flex flex-col" style={{background:'#0d0c0b',overflowX:'hidden'}}>
     <div className="flex-shrink-0 border-b border-stone-800/60" style={{background:'rgba(13,12,11,.96)',backdropFilter:'blur(10px)'}}>
       <div className="wrap flex items-start justify-between gap-3 py-3">
@@ -891,6 +1135,20 @@ function ExpandedCampaign({cfg,data,detail,loading,onClose,onReload,dateLabel}){
     </div>
     <div className="overflow-y-auto flex-1 overflow-x-hidden">
       <div className="wrap py-4 space-y-3">
+        {/* ★ CAMPAIGN-LEVEL TAPG TABLE — front and center */}
+        <CampaignTAPGTable cfg={cfg} data={data} days={days}/>
+        {/* ★ CAMPAIGN-LEVEL CHART with values directly on points */}
+        {dailySeries.length>0&&<div className="card">
+          <div className="px-4 py-2.5 border-b border-stone-800/40 flex flex-wrap items-baseline gap-2">
+            <span className="text-sm font-semibold text-stone-100">Campaign trends · values labeled</span>
+            <span className="text-[10px] text-stone-500">{dailySeries.length} day{dailySeries.length>1?'s':''}</span>
+          </div>
+          <div className="px-4 py-2 border-b border-stone-800/30 flex flex-wrap gap-1.5">
+            {Object.entries(CHART_M).map(([k,v])=>(<button key={k} onClick={()=>setChartMetric(k)} className={`filter-btn ${chartMetric===k?'active':''}`}>{v.label}</button>))}
+          </div>
+          <div className="p-4"><TimeSeriesChart data={dailySeries} metric={CHART_M[chartMetric]}/></div>
+        </div>}
+        {dailySeries.length===0&&<div className="card px-4 py-3 text-[11px] text-stone-500 italic">No daily campaign data yet — campaign has not spent in the selected range.</div>}
         <div className="card"><div className="flex items-center justify-between px-4 py-2.5 border-b border-stone-800/40"><span className="text-sm font-semibold text-stone-100">Action plan <span className="text-amber-500 font-normal text-xs">· from current data</span></span><span className="text-[9px] uppercase tracking-widest text-stone-500">{plan.length} ACTIONS</span></div><ActionPlanView tasks={plan}/></div>
         {(data.impressions>0||data.purchases>0)&&(<div className="grid grid-cols-1 md:grid-cols-2 gap-3"><FunnelViz data={data} dateLabel={dateLabel}/><UnitEconomics data={data} cfg={cfg}/></div>)}
         {loading&&<div className="card text-center py-6 text-stone-500 text-sm"><span className="spin">↻</span> Loading ad sets &amp; ads…</div>}
@@ -902,18 +1160,62 @@ function ExpandedCampaign({cfg,data,detail,loading,onClose,onReload,dateLabel}){
   </div>);
 }
 
-function CampaignCard({cfg,data,onExpand}){
+function CampaignCard({cfg,data,onExpand,days}){
   const has=data&&data.effectiveStatus==='ACTIVE'&&(data.spend||0)>0;
   const isKill=data?.status==='kill';
   const st=!data?'NOT LAUNCHED':has?data.effectiveStatus:data.effectiveStatus==='ACTIVE'?'NO DELIVERY':data.effectiveStatus;
   const sc=isKill?'text-red-400':has?'text-emerald-400':!data?'text-stone-700':'text-stone-500';
-  return(<div onClick={()=>data&&onExpand()} className={`border rounded-sm cursor-pointer transition-all duration-100 hover:border-stone-600 active:scale-[.97] ${isKill?'border-red-800/60 bg-red-950/10':has?'border-stone-700/50 bg-stone-900/40':'border-stone-800/40 bg-stone-950/40'} ${!data?'opacity-35 cursor-default':''}`}>
-    <div className="p-2 sm:p-3">
-      <div className="flex items-center justify-between mb-1.5"><span className="text-[9px] font-bold text-stone-500 uppercase">{cfg.slot}</span><span className={`text-[8px] font-bold uppercase ${sc}`}>{st}</span></div>
-      <div className="text-[8px] sm:text-[9px] text-stone-600 leading-snug mb-2 line-clamp-2">{cfg.name}</div>
-      <div className="grid grid-cols-3 gap-1">
-        {[['ROAS',data?.roas!=null?fx(data.roas):'—','kill <'+cfg.killRoas+'x',data?.roas!=null?(data.roas>=cfg.killRoas*1.15?'text-emerald-400':data.roas>=cfg.killRoas?'text-amber-400':'text-red-400'):'text-stone-700'],['Spend',has?inr(data.spend):'—',(data?.purchases||0)+' orders','text-stone-300'],['CPA',has&&data?.cpa?inr(data.cpa):'—','≤'+inr(cfg.targetCpa),data?.cpa&&data.cpa>cfg.targetCpa?'text-red-400':'text-stone-300']].map(([l,v,s,c])=>(<div key={l}><div className="text-[7px] text-stone-700 uppercase">{l}</div><div className={`text-xs sm:text-sm font-bold mono ${c}`}>{v}</div><div className="text-[7px] text-stone-700 truncate">{s}</div></div>))}
+  // Build 3 most-important TAPG rows for the card
+  const expectedSpend=data?(data.dailyBudget||0)*days:0;
+  const roasR=tapg({target:cfg.killRoas,achieved:data?.roas});
+  const cpaR=tapg({target:cfg.targetCpa,achieved:data?.cpa,inverse:true});
+  const spendR=expectedSpend>0?tapg({target:expectedSpend,achieved:data?.spend||0,cumulative:true}):null;
+  // Overall card status
+  const statuses=[roasR.status,cpaR.status,spendR?.status].filter(s=>s&&s!=='idle');
+  const cardSt=statuses.includes('off')?'off':statuses.includes('warn')?'warn':statuses.includes('on')?'on':'idle';
+  const borderCol=isKill?'border-red-800/60':cardSt==='off'?'border-red-900/40':cardSt==='warn'?'border-amber-900/40':cardSt==='on'?'border-stone-700/50':'border-stone-800/40';
+  const bgCol=isKill?'bg-red-950/10':cardSt==='off'?'bg-red-950/5':cardSt==='warn'?'bg-amber-950/5':has?'bg-stone-900/40':'bg-stone-950/40';
+  const fmtX=v=>v==null?'—':v.toFixed(2)+'x';
+  const fmtRu=v=>v==null?'—':inr(v);
+  return(<div onClick={()=>data&&onExpand()} className={`border rounded-sm cursor-pointer transition-all duration-100 hover:border-stone-500 active:scale-[.98] ${borderCol} ${bgCol} ${!data?'opacity-35 cursor-default':''}`}>
+    <div className="p-2.5">
+      <div className="flex items-center justify-between mb-1"><div className="flex items-center gap-1.5"><span className="text-[10px] font-bold text-stone-300 mono">{cfg.slot}</span>{cfg.product==='core_pair'&&<span className="text-[7px] text-amber-500 font-bold uppercase">CP</span>}{cfg.product==='trio'&&<span className="text-[7px] text-emerald-500 font-bold uppercase">TR</span>}</div><span className={`flag-dot ${cardSt}`} title={stLabel(cardSt)}/></div>
+      <div className="text-[9px] text-stone-500 leading-snug mb-2 line-clamp-2 min-h-[24px]">{cfg.name}</div>
+      <div className={`text-[8px] uppercase font-bold tracking-wider mb-1.5 ${sc}`}>{st}</div>
+      {/* 4-column mini TAPG for ROAS, CPA, Spend-pace */}
+      <div className="space-y-1.5 mt-1.5">
+        {/* ROAS */}
+        <div>
+          <div className="flex items-center justify-between text-[8px] uppercase tracking-widest text-stone-600 mono"><span>ROAS</span><span className={stColor(roasR.status)}>{stLabel(roasR.status)}</span></div>
+          <div className="grid grid-cols-4 gap-1 mt-0.5 text-[10px] mono leading-tight">
+            <div><div className="text-stone-700 text-[7px]">TGT</div><div className="text-stone-400">{fmtX(cfg.killRoas)}</div></div>
+            <div><div className="text-stone-700 text-[7px]">ACT</div><div className={`font-bold ${stColor(roasR.status)}`}>{fmtX(roasR.achieved)}</div></div>
+            <div><div className="text-stone-700 text-[7px]">PND</div><div className="text-stone-500">{roasR.pending==null?'—':roasR.pending===0?'0':'+'+roasR.pending.toFixed(2)}</div></div>
+            <div><div className="text-stone-700 text-[7px]">GAP</div><div className={`font-bold ${stColor(roasR.status)}`}>{roasR.gapPct==null?'—':(roasR.gapPct>=0?'+':'')+roasR.gapPct+'%'}</div></div>
+          </div>
+        </div>
+        {/* CPA */}
+        <div>
+          <div className="flex items-center justify-between text-[8px] uppercase tracking-widest text-stone-600 mono"><span>CPA</span><span className={stColor(cpaR.status)}>{stLabel(cpaR.status)}</span></div>
+          <div className="grid grid-cols-4 gap-1 mt-0.5 text-[10px] mono leading-tight">
+            <div><div className="text-stone-700 text-[7px]">TGT</div><div className="text-stone-400">{fmtRu(cfg.targetCpa)}</div></div>
+            <div><div className="text-stone-700 text-[7px]">ACT</div><div className={`font-bold ${stColor(cpaR.status)}`}>{fmtRu(cpaR.achieved)}</div></div>
+            <div><div className="text-stone-700 text-[7px]">OVR</div><div className="text-stone-500">{cpaR.pending==null?'—':cpaR.pending===0?'0':'+'+inr(cpaR.pending)}</div></div>
+            <div><div className="text-stone-700 text-[7px]">GAP</div><div className={`font-bold ${stColor(cpaR.status)}`}>{cpaR.gapPct==null?'—':(cpaR.gapPct>=0?'+':'')+cpaR.gapPct+'%'}</div></div>
+          </div>
+        </div>
+        {/* Spend pace */}
+        {spendR&&<div>
+          <div className="flex items-center justify-between text-[8px] uppercase tracking-widest text-stone-600 mono"><span>Spend (pace)</span><span className={stColor(spendR.status)}>{stLabel(spendR.status)}</span></div>
+          <div className="grid grid-cols-4 gap-1 mt-0.5 text-[10px] mono leading-tight">
+            <div><div className="text-stone-700 text-[7px]">TGT</div><div className="text-stone-400">{fmtRu(expectedSpend)}</div></div>
+            <div><div className="text-stone-700 text-[7px]">ACT</div><div className={`font-bold ${stColor(spendR.status)}`}>{fmtRu(spendR.achieved)}</div></div>
+            <div><div className="text-stone-700 text-[7px]">PND</div><div className="text-stone-500">{spendR.pending==null?'—':spendR.pending===0?'0':inr(spendR.pending)}</div></div>
+            <div><div className="text-stone-700 text-[7px]">GAP</div><div className={`font-bold ${stColor(spendR.status)}`}>{spendR.gapPct==null?'—':(spendR.gapPct>=0?'+':'')+spendR.gapPct+'%'}</div></div>
+          </div>
+        </div>}
       </div>
+      <div className="mt-2 pt-1.5 border-t border-stone-800/40 flex justify-between text-[9px] mono text-stone-600"><span>{data?.purchases||0} orders · AOV {inr(data?.aov)}</span><span className="text-stone-500">tap →</span></div>
     </div>
   </div>);
 }
@@ -976,6 +1278,7 @@ function Dashboard({token,onChangeToken}){
   const expandedCfg=useMemo(()=>{if(!expandedData)return null;return expandedData.slot?SLOT_MAP[expandedData.slot]:{slot:'LEGACY',name:expandedData.name,type:'legacy',killRoas:1.0,targetCpa:4000,targetAov:7800,freqMax:3.0,killSpend:10000};},[expandedData]);
   const phaseInfo=useMemo(()=>currentPhase(),[]);
   const actuals=useMemo(()=>data?computeActuals(data):{},[data]);
+  const days=useMemo(()=>daysInRange(data?.dailyData),[data]);
   return(<div className="min-h-screen pb-16" style={{overflowX:'hidden'}}>
     {/* Sticky Header */}
     <div className="sticky top-0 z-40 border-b border-stone-800/60" style={{background:'rgba(13,12,11,.93)',backdropFilter:'blur(12px)'}}>
@@ -1009,39 +1312,39 @@ function Dashboard({token,onChangeToken}){
         <div className="kpi-grid mb-3 rounded-sm overflow-hidden">
           {[['SPEND',inr(data.spend),'period total',null],['REVENUE',inr(data.revenue),'Meta attrib.',null],['ROAS',fx(data.roas),'target ≥1.6x',data.roas>=1.6?'good':data.roas>=1.0?'warn':'bad'],['AOV',inr(data.aov),'Core Pair ₹7,800',(data.aov||0)>=7800?'good':(data.aov||0)>=6000?'warn':'bad'],['CPA',inr(data.cpa),'target ≤₹3,200',(data.cpa||9999)<=3200?'good':'bad'],['FREQ',fx(data.frequency,2),'cap 2.5x',(data.frequency||0)<=2.5?'good':'warn'],['IC→P.',pct(data.icToPurchase),'target ≥40%',(data.icToPurchase||0)>=40?'good':'warn']].map(([l,v,s,st])=>(<div key={l} className="px-3 sm:px-4 py-3 border-r border-b border-stone-800/30 last:border-r-0"><div className="sec-hd">{l}</div><div className={`text-lg sm:text-xl font-bold mono mt-0.5 ${st==='good'?'text-emerald-400':st==='bad'?'text-red-400':st==='warn'?'text-amber-400':'text-stone-100'}`}>{v}</div><div className="text-[9px] text-stone-600 mt-0.5 leading-tight">{s}</div></div>))}
         </div>
-        {/* 2. Locked Offer Config (NEW) */}
+        {/* 2. Locked Offer Config */}
         <BusinessDecisionsBar/>
-        {/* 3. Underperformance Flags (NEW) — sticky-prominent */}
+        {/* 3. ★ TOTAL SUMMARY · Target / Achieved / Pending / Gap */}
+        <SummaryView data={data} actuals={actuals} phaseInfo={phaseInfo}/>
+        {/* 4. Underperformance Flags */}
         <UnderperformanceFlags data={data} actuals={actuals} phaseInfo={phaseInfo} campaigns={data.campaigns}/>
-        {/* 4. Critical alerts (existing) */}
+        {/* 5. Critical alerts */}
         {data.roas<1.0&&data.spend>0&&<div className="mb-3 px-3 py-2.5 bg-red-950/20 border border-red-900/40 text-red-300 text-[11px] rounded-sm flex items-start gap-2"><span className="flex-shrink-0">🔴</span><span><strong>Account ROAS {data.roas}x below 1.0x</strong> — contribution-negative. Every rupee of revenue costs more than it earns before COGS.</span></div>}
         {data.roas>=1.0&&data.roas<1.4&&data.spend>0&&<div className="mb-3 px-3 py-2.5 bg-red-950/10 border border-red-900/30 text-red-400 text-[11px] rounded-sm">⚠ Account ROAS {data.roas}x below kill threshold 1.4x — structurally contribution-negative.</div>}
         {data.icToPurchase!==null&&data.icToPurchase<40&&(data.ic||0)>0&&<div className="mb-3 px-3 py-2.5 bg-amber-950/20 border border-amber-900/30 text-amber-400 text-[11px] rounded-sm">⚠ IC→Purchase {data.icToPurchase}% below 40% — Razorpay payment failures. Check Razorpay dashboard.</div>}
-        {/* 5. Objectives (NEW) — Target vs Actual */}
-        <ObjectivesPanel data={data} actuals={actuals} phaseInfo={phaseInfo}/>
-        {/* 6. Profitability View (NEW) */}
+        {/* 6. Profitability View */}
         <ProfitabilityView data={data} phaseInfo={phaseInfo}/>
-        {/* 7. Trends with filters (NEW) */}
+        {/* 7. ★ Trends — campaign-filterable, values shown on chart */}
         <TrendsPanel data={data}/>
-        {/* 8. Plan Compliance (existing) */}
+        {/* 8. Plan Compliance */}
         <PlanCompliance campaigns={data.campaigns} unmapped={data.unmappedCampaigns} dailyData={data.dailyData}/>
-        {/* 9. Phase Tracker (existing) */}
+        {/* 9. Phase Tracker */}
         <PhaseTracker dailyData={data.dailyData}/>
-        {/* 10. C1-C9 Matrix (existing) */}
-        <div className="flex items-center justify-between mb-2">
-          <span className="sec-hd" style={{marginBottom:0}}>C1–C9 Campaign Matrix</span>
+        {/* 10. ★ C1-C9 Campaign Matrix — each card shows Target/Achieved/Pending/Gap */}
+        <div className="flex items-center justify-between mb-2 mt-2">
+          <div><span className="sec-hd block">Campaign Matrix · click any card for full target detail</span><span className="text-base font-bold text-stone-100">C1–C9 · per-campaign Target · Achieved · Pending · Gap</span></div>
           <span className="text-[9px] text-stone-600">{data.campaigns?.filter(c=>c.effectiveStatus==='ACTIVE').length||0}/9 active</span>
         </div>
-        <div className="grid grid-cols-3 gap-2" style={{gridTemplateColumns:'repeat(3,1fr)'}}>
-          <style>{`@media(min-width:560px){.cg{grid-template-columns:repeat(5,1fr)!important;}}@media(min-width:900px){.cg{grid-template-columns:repeat(9,1fr)!important;}}`}</style>
-          {SLOTS.map(cfg=>(<div key={cfg.slot} className="cg"><CampaignCard cfg={cfg} data={slotData[cfg.slot]} onExpand={()=>slotData[cfg.slot]&&handleExpand(slotData[cfg.slot].id)}/></div>))}
+        <div className="grid gap-2 cg" style={{gridTemplateColumns:'repeat(1,1fr)'}}>
+          <style>{`@media(min-width:480px){.cg{grid-template-columns:repeat(2,1fr)!important;}}@media(min-width:768px){.cg{grid-template-columns:repeat(3,1fr)!important;}}@media(min-width:1200px){.cg{grid-template-columns:repeat(3,1fr)!important;}}`}</style>
+          {SLOTS.map(cfg=>(<CampaignCard key={cfg.slot} cfg={cfg} data={slotData[cfg.slot]} days={days} onExpand={()=>slotData[cfg.slot]&&handleExpand(slotData[cfg.slot].id)}/>))}
         </div>
-        {/* 11. Legacy (existing) */}
+        {/* 11. Legacy */}
         <LegacyTable campaigns={data.unmappedCampaigns||[]} token={token} dateQ={dateQ}/>
       </>)}
     </div>
     {/* Full-screen modal */}
-    {expanded&&expandedCfg&&expandedData&&<ExpandedCampaign cfg={expandedCfg} data={expandedData} detail={detail[expanded]} loading={!!loadingDetail[expanded]} onClose={()=>setExpanded(null)} onReload={()=>{setDetail(p=>{const n={...p};delete n[expanded];return n;});loadDetail(expanded);}} dateLabel={dateLabel}/>}
+    {expanded&&expandedCfg&&expandedData&&<ExpandedCampaign cfg={expandedCfg} data={expandedData} detail={detail[expanded]} loading={!!loadingDetail[expanded]} onClose={()=>setExpanded(null)} onReload={()=>{setDetail(p=>{const n={...p};delete n[expanded];return n;});loadDetail(expanded);}} dateLabel={dateLabel} days={days}/>}
   </div>);
 }
 
