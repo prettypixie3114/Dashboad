@@ -1,7 +1,9 @@
-# Pretty Pixie · Fashion Forever — Performance Command Center (v5)
+# Pretty Pixie · Fashion Forever — Performance Command Center (v5.1)
 
 Senior-management performance dashboard for the 9-Campaign Meta build.
 Tracks live Meta API data against the locked targets from the `Mar+Apr Analysis v6` deliverables.
+
+**v5.1 additions** · conversion funnel diagnostic · per-ad recommendation engine · auto-refresh · CVR/CTR everywhere
 
 ---
 
@@ -10,13 +12,32 @@ Tracks live Meta API data against the locked targets from the `Mar+Apr Analysis 
 **Top-line (the management showcase view):**
 - **Executive Header** — yesterday's MER as a big number with traffic-light status against Phase 1/2/3 goal band, plus a one-line summary ("6 of 10 gold KPIs on target · 2 at risk · 2 below target")
 - **Margin Protection Rules** — all 10 rules from Section 14, with TRIPPED / HOLDING status and evidence. Surfaces at the top because these are the rules that prevent contribution-negative scaling.
-- **Executive Summary table** — Goal · Where We Are · Status · What This Means · What To Do for all 16 KPIs from Section J. Filter to Gold (the 6 CEO metrics) or Silver (tactical).
+- **Executive Summary table** — Goal · Where We Are · Status · What This Means · What To Do for all 23 KPIs (16 from Section J + 7 conversion funnel KPIs). Filter to Gold (the 6 CEO metrics) or Silver (tactical).
+- **Conversion Funnel panel** *(v5.1)* — Impressions → Link Clicks → ATC → Init Checkout → Purchase. Each stage shows count, conversion rate from previous, drop-off %, and benchmark target. Highlights the biggest leak (e.g., "IC → Purchase losing 64.2% — Razorpay/GoKwik checkout health · was 48.8% baseline, 36% today").
 - **Funnel Stage Allocation** — Prospecting / Retargeting / Reactivation actual vs target % per phase
-- **9-Campaign Matrix** — one card per campaign with phase-specific Goal / Actual / Gap / Kill rule status. Click any card for full detail.
-- **Campaign Detail** (modal) — full TAPG table (Goal · Where We Are · Shortfall · Gap to Goal · Status) for 10 KPIs, kill-rule alert banner, interactive chart with values labeled on every point, ad-set table with per-ad-set recommendation.
+- **9-Campaign Matrix** — one card per campaign with phase-specific Goal / Actual / Gap / Kill rule status + CVR + CTR + AOV + Frequency at a glance. Click any card for ad-level detail.
+- **Campaign Detail** (modal) — full TAPG table for 10 campaign KPIs · kill-rule alert banner · interactive chart with values labeled · ad-set table with recommendation · **ad-level table with per-ad action** *(v5.1)* applying Sheet 16 Section 3 thresholds: each ad gets KILL / PAUSE / REFRESH / AUDIT / SCALE / HOLD / BUILDING verdict with reasoning. Direct links to Meta Ads Manager for any ad.
 - **Interactive Trends** — chart with metric filter (ROAS, Spend, Revenue, CPA, AOV, Orders) and scope filter (Account total, by stage, or any of 9 campaigns). Target and kill lines drawn.
 - **Audience Segments** — F35-44, F25-34, etc. with Goal ROAS vs actual. Surfaces "Exclusion Broken" alert if any spend leaks to Male 18-34 (which should be excluded permanently).
 - **Pre-Flight Checklist** — 22-item launch readiness tracker with localStorage persistence.
+- **Auto-refresh** *(v5.1)* — toggle Off / 5min / 15min / 30min in the header. Live "synced X seconds ago" counter.
+
+**Conversion metrics added in v5.1:**
+- **CVR · Click → Purchase** — the conversion engine (≥1.5% P1 · ≥2.0% P2 · ≥2.5% P3)
+- **Link CTR** — link clicks / impressions (≥1.0-1.5% by phase)
+- **ATC Rate** — Add-to-Cart per link click (≥4-6% by phase)
+- **IC → Purchase %** — Razorpay/GoKwik checkout health (≥40-50% by phase · baseline 36%, target 48.8%+)
+- **Hook Rate (3-sec)** — creative quality signal (≥25-30% by phase)
+- **CPC** — Cost per link click (≤₹30-40 by phase)
+- **CTR** — total CTR including image clicks (≥1.0-1.5% by phase)
+
+**Per-ad action engine (v5.1):**
+Every ad in a campaign gets a verdict following Sheet 16 Section 3 thresholds:
+- **Cold prospecting:** ROAS <1.0x at ₹15K → KILL within 24hr · 1.0-1.4x → REFRESH hook · ≥1.5x → PROMOTE +20%
+- **Warm RT (C8):** <1.5x at ₹8K → KILL within 48hr · ≥2.5x → PROMOTE
+- **Hot DPA (C7):** <2.0x at ₹5K → CATALOG AUDIT (not creative)
+- **Reactivation (C9):** <2.5x at ₹5K → REFRESH hook + window · ≥5.0x → SCALE +30%
+- **Universal:** Frequency >3.5x → PAUSE · >3.0x → REFRESH · 0 orders at ₹5K → KILL
 
 **Status language used throughout:**
 - ON TARGET · AT RISK · BELOW TARGET · NOT YET TRACKED
