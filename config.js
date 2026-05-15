@@ -241,6 +241,56 @@ window.PIXIE_CONFIG = {
       mgmt: 'Avg impressions per person · creative fatigue above 2.5x',
       breachAction: 'Refresh creative or expand audience',
     },
+    /* ─ CONVERSION FUNNEL KPIs (Section 4 / CRO leaks) ─ */
+    ctr: {
+      label: 'CTR · All Clicks', group: 'silver', fmt: '%', inverse: false,
+      baseline: null, bands: { p1: [1.0, 100], p2: [1.2, 100], p3: [1.5, 100] },
+      source: 'Meta', frequency: 'daily',
+      mgmt: '% of impressions clicked · benchmark ≥1.5%',
+      breachAction: 'Hook variant test · first-3-sec audit',
+    },
+    linkCtr: {
+      label: 'Link CTR', group: 'silver', fmt: '%', inverse: false,
+      baseline: null, bands: { p1: [1.0, 100], p2: [1.2, 100], p3: [1.5, 100] },
+      source: 'Meta', frequency: 'daily',
+      mgmt: '% reaching the link · benchmark ≥1.0% cold, ≥1.5% warm',
+      breachAction: 'CTA fix · LP relevance check',
+    },
+    cvr: {
+      label: 'CVR · Click → Purchase', group: 'silver', fmt: '%', inverse: false,
+      baseline: null, bands: { p1: [1.5, 100], p2: [2.0, 100], p3: [2.5, 100] },
+      source: 'Meta', frequency: 'daily',
+      mgmt: '% of link-clickers who buy · the conversion engine',
+      breachAction: 'Funnel audit — find the drop-off stage',
+    },
+    atcRate: {
+      label: 'ATC Rate (per click)', group: 'silver', fmt: '%', inverse: false,
+      baseline: null, bands: { p1: [4.0, 100], p2: [5.0, 100], p3: [6.0, 100] },
+      source: 'Meta', frequency: 'daily',
+      mgmt: '% adding to cart from link click · benchmark ≥5%',
+      breachAction: 'PDP merch · price visibility · trust badges',
+    },
+    icToPurchaseKpi: {
+      label: 'IC → Purchase %', group: 'silver', fmt: '%', inverse: false,
+      baseline: 36, bands: { p1: [40, 100], p2: [45, 100], p3: [50, 100] },
+      source: 'Meta + Shopify', frequency: 'daily',
+      mgmt: 'Razorpay/GoKwik checkout health · was 48.8% baseline · 36% today',
+      breachAction: 'OTP delivery audit · payment method ordering',
+    },
+    hookRate: {
+      label: 'Hook Rate (3-sec)', group: 'silver', fmt: '%', inverse: false,
+      baseline: null, bands: { p1: [25, 100], p2: [28, 100], p3: [30, 100] },
+      source: 'Meta', frequency: 'daily',
+      mgmt: '% who watch first 3 seconds · creative quality signal',
+      breachAction: 'Hook variant brief · first 3-sec must show product on body',
+    },
+    cpc: {
+      label: 'CPC · Link Click', group: 'silver', fmt: '₹', inverse: true,
+      baseline: null, bands: { p1: [0, 40], p2: [0, 35], p3: [0, 30] },
+      source: 'Meta', frequency: 'daily',
+      mgmt: 'Cost per link click · lower is better · benchmark ≤₹30',
+      breachAction: 'Audience/placement audit · creative refresh',
+    },
   },
 
   /* ── MARGIN PROTECTION RULES · Section 14 (10 rules) ──────────── */
