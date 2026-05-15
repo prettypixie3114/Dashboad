@@ -1,0 +1,1519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Pretty Pixie · Performance Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  body { background:#0d0c0b; color:#e7e5e4; font-family:'Inter',system-ui,sans-serif; -webkit-font-smoothing:antialiased; overflow-x:hidden; }
+  .mono { font-family:'IBM Plex Mono',monospace; }
+  .wrap { max-width:1280px; margin:0 auto; padding:0 1rem; }
+  .card { background:rgba(28,25,23,.6); border:1px solid rgba(68,64,60,.5); border-radius:4px; }
+  .sec-hd { font-family:'IBM Plex Mono',monospace; font-size:9px; text-transform:uppercase; letter-spacing:.12em; color:#a8a29e; font-weight:600; margin-bottom:6px; }
+  .kpi-grid { background:rgba(28,25,23,.4); border:1px solid rgba(68,64,60,.4); display:grid; grid-template-columns:repeat(2,1fr); }
+  @media(min-width:640px){ .kpi-grid{grid-template-columns:repeat(4,1fr);} }
+  @media(min-width:1024px){ .kpi-grid{grid-template-columns:repeat(7,1fr);} }
+  .spin { display:inline-block; animation:spin 1s linear infinite; }
+  @keyframes spin { from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+  .pulse { animation:pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.4;} }
+  .presets-scroll { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; align-items:center; }
+  .presets-scroll::-webkit-scrollbar { height:0; }
+  .sd { animation:sd .15s ease-out; }
+  @keyframes sd { from{opacity:0;transform:translateY(-3px);} to{opacity:1;transform:translateY(0);} }
+  /* Status visuals */
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .dot.met       { background:#10b981; box-shadow:0 0 0 3px rgba(16,185,129,.18); }
+  .dot.risk      { background:#f59e0b; box-shadow:0 0 0 3px rgba(245,158,11,.18); }
+  .dot.under     { background:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.18); }
+  .dot.idle      { background:#57534e; }
+  .chip { display:inline-flex; align-items:center; padding:2px 8px; border-radius:3px; font-size:10px; font-weight:700; font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
+  .chip.met   { background:rgba(16,185,129,.12); color:#34d399; border:1px solid rgba(16,185,129,.25); }
+  .chip.risk  { background:rgba(245,158,11,.12); color:#fbbf24; border:1px solid rgba(245,158,11,.25); }
+  .chip.under { background:rgba(239,68,68,.12); color:#f87171; border:1px solid rgba(239,68,68,.25); }
+  .chip.idle  { background:rgba(68,64,60,.3); color:#a8a29e; border:1px solid rgba(68,64,60,.5); }
+  /* Big status banner */
+  .status-banner { padding:18px 22px; border-radius:6px; border:1px solid; }
+  .status-banner.met   { background:linear-gradient(135deg,rgba(16,185,129,.08),rgba(16,185,129,.02)); border-color:rgba(16,185,129,.25); }
+  .status-banner.risk  { background:linear-gradient(135deg,rgba(245,158,11,.08),rgba(245,158,11,.02)); border-color:rgba(245,158,11,.25); }
+  .status-banner.under { background:linear-gradient(135deg,rgba(239,68,68,.10),rgba(239,68,68,.02)); border-color:rgba(239,68,68,.30); }
+  .status-banner.idle  { background:rgba(28,25,23,.5); border-color:rgba(68,64,60,.4); }
+  /* Filter pills */
+  .pill { font-family:'IBM Plex Mono',monospace; font-size:10px; padding:4px 10px; border:1px solid rgba(68,64,60,.6); color:#a8a29e; background:transparent; border-radius:3px; cursor:pointer; white-space:nowrap; text-transform:uppercase; letter-spacing:.04em; }
+  .pill:hover { color:#e7e5e4; border-color:#78716c; }
+  .pill.active { background:#f59e0b; border-color:#f59e0b; color:#0d0c0b; font-weight:700; }
+  /* Target bar */
+  .tbar { width:100%; height:5px; background:rgba(68,64,60,.4); border-radius:2px; overflow:hidden; }
+  .tbar-fill { height:100%; transition:width .3s ease; }
+  /* Row hover */
+  .row-h:hover { background:rgba(255,255,255,.015); }
+  /* Card hover lift */
+  .lift { transition:all .12s ease; }
+  .lift:hover { border-color:#78716c; transform:translateY(-1px); }
+  /* Plain English status */
+  .stat-pe { font-size:13px; font-weight:700; }
+  .stat-pe.met   { color:#34d399; }
+  .stat-pe.risk  { color:#fbbf24; }
+  .stat-pe.under { color:#f87171; }
+  .stat-pe.idle  { color:#78716c; }
+  /* Section divider */
+  .sec-divider { padding:24px 0 6px; border-top:1px dashed rgba(68,64,60,.3); margin-top:12px; }
+  /* Print friendly for management showcase */
+  @media print {
+    body { background:white; color:black; }
+    .no-print { display:none !important; }
+    .card { border:1px solid #ccc; background:white; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="./config.js"></script>
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
+const CFG = window.PIXIE_CONFIG;
+const SLOTS = CFG.campaigns;
+const SLOT_MAP = Object.fromEntries(SLOTS.map(c => [c.slot, c]));
+const PHASE_START = new Date(CFG.phaseStartIST);
+const BASE = `https://graph.facebook.com/${CFG.meta.apiVersion}`;
+const ATTR = CFG.meta.attribution;
+const FIELDS = 'spend,impressions,inline_link_clicks,clicks,reach,frequency,actions,action_values,conversions,unique_actions';
+
+/* ═══ FORMATTERS ════════════════════════════════════════════════════ */
+const inr   = n => n == null ? '—' : '₹' + Math.round(n).toLocaleString('en-IN');
+const inrK  = n => { if (n==null) return '—'; const a=Math.abs(n); if(a>=100000) return (n<0?'−₹':'₹')+(Math.abs(n)/100000).toFixed(2)+'L'; if(a>=1000) return (n<0?'−₹':'₹')+(Math.abs(n)/1000).toFixed(1)+'k'; return inr(n); };
+const inrL  = n => { if (n==null) return '—'; return (n<0?'−₹':'₹')+(Math.abs(n)/100000).toFixed(2)+'L'; };
+const num   = n => n == null ? '—' : Number(n).toLocaleString('en-IN');
+const pct   = (n, d=1) => n == null ? '—' : Number(n).toFixed(d) + '%';
+const fx    = (n, d=2) => n == null ? '—' : Number(n).toFixed(d) + 'x';
+const fmtV  = (v, fmt) => {
+  if (v == null || isNaN(v)) return '—';
+  if (fmt === 'x')  return Number(v).toFixed(2) + 'x';
+  if (fmt === '₹')  return inr(v);
+  if (fmt === 'L')  return inrL(v);
+  if (fmt === '%')  return Number(v).toFixed(1) + '%';
+  if (fmt === 'mo') return Number(v).toFixed(1) + ' mo';
+  if (fmt === 'n')  return num(v);
+  return v;
+};
+const fmtBand = (band, fmt) => {
+  if (!band) return '—';
+  const [lo, hi] = band;
+  if (fmt === 'x')  return `${lo} – ${hi}x`;
+  if (fmt === '%')  return `${lo} – ${hi}%`;
+  if (fmt === '₹')  return `${inr(lo)} – ${inr(hi)}`;
+  if (fmt === 'L')  return `${inrL(lo)} → ${inrL(hi)}`;
+  if (fmt === 'mo') return `${lo} – ${hi} mo`;
+  return `${lo} – ${hi}`;
+};
+
+/* ═══ PHASE DETECTION ══════════════════════════════════════════════ */
+function currentPhase() {
+  const now = new Date();
+  const ms = Math.max(0, now - PHASE_START);
+  const day = Math.floor(ms / 86400000) + 1;
+  let cumulative = 0;
+  for (const p of CFG.phases) {
+    if (day <= cumulative + p.days) {
+      return { ...p, dayOfPhase: day - cumulative, totalDay: day, phaseNo: p.n };
+    }
+    cumulative += p.days;
+  }
+  const last = CFG.phases[CFG.phases.length - 1];
+  return { ...last, dayOfPhase: last.days, totalDay: day, phaseNo: last.n, postPhase: true };
+}
+const phaseKey = n => 'p' + n;
+const daysInRange = daily => Math.max(1, daily?.length || 1);
+
+/* ═══ STATUS / TAPG ════════════════════════════════════════════════ */
+// status codes: 'met' / 'risk' / 'under' / 'idle'
+const STATUS_LABEL = { met: 'ON TARGET', risk: 'AT RISK', under: 'BELOW TARGET', idle: 'NOT YET TRACKED' };
+const STATUS_PE    = { met: 'Meeting the goal', risk: 'Close to goal · watch', under: 'Below goal · action needed', idle: 'Not enough data yet' };
+const stColor = s => ({ met:'text-emerald-400', risk:'text-amber-400', under:'text-red-400', idle:'text-stone-500' }[s] || 'text-stone-500');
+const stBg    = s => ({ met:'#10b981', risk:'#f59e0b', under:'#ef4444', idle:'#57534e' }[s] || '#57534e');
+
+// Evaluate a value against a band [lo, hi]; for inverse, lower is better.
+function evalBand(value, band, inverse) {
+  if (value == null || !band) return 'idle';
+  const [lo, hi] = band;
+  if (inverse) {
+    if (value <= lo) return 'met';
+    if (value <= hi) return 'risk';
+    return 'under';
+  } else {
+    if (value >= hi) return 'met';
+    if (value >= lo) return 'risk';
+    if (value >= lo * 0.85) return 'risk';
+    return 'under';
+  }
+}
+
+// TAPG = Target / Achieved / Pending / Gap
+function tapg({ target, achieved, inverse=false, cumulative=false, band=null }) {
+  let status='idle', pending=null, gap=null, gapPct=null;
+  if (achieved == null || target == null) return { target, achieved, pending, gap, gapPct, status, band };
+  if (cumulative) {
+    pending = Math.max(0, target - achieved);
+    gap = achieved - target;
+    gapPct = target > 0 ? +(gap / target * 100).toFixed(1) : null;
+    if (achieved >= target)              status = 'met';
+    else if (achieved >= target * 0.85)  status = 'risk';
+    else                                  status = 'under';
+  } else if (inverse) {
+    pending = achieved > target ? +(achieved - target).toFixed(2) : 0;
+    gap = target - achieved;
+    gapPct = target > 0 ? +((target - achieved) / target * 100).toFixed(1) : null;
+    if (band) status = evalBand(achieved, band, true);
+    else      status = achieved <= target ? 'met' : achieved <= target * 1.15 ? 'risk' : 'under';
+  } else {
+    pending = achieved < target ? +(target - achieved).toFixed(2) : 0;
+    gap = achieved - target;
+    gapPct = target > 0 ? +((achieved - target) / target * 100).toFixed(1) : null;
+    if (band) status = evalBand(achieved, band, false);
+    else      status = achieved >= target ? 'met' : achieved >= target * 0.85 ? 'risk' : 'under';
+  }
+  return { target, achieved, pending, gap, gapPct, status, band };
+}
+
+/* ═══ META API ═════════════════════════════════════════════════════ */
+async function metaGet(token, path, query='') {
+  const sep = query ? '&' : '';
+  const r = await fetch(`${BASE}/${path}?${query}${sep}access_token=${token}`);
+  const d = await r.json();
+  if (d.error) throw new Error(d.error.message || 'Meta API error');
+  return d;
+}
+function findConv(row, type, src='actions') {
+  if (!row?.[src]) return 0;
+  const m = row[src].find(a => a.action_type === type);
+  return m ? parseFloat(m.value || 0) : 0;
+}
+function buildKpis(row) {
+  if (!row) return { spend:0, revenue:0, purchases:0, cpa:null, roas:null, aov:null, impressions:0, clicks:0, linkClicks:0, ctr:null, cpc:null, ic:0, atc:0, icToPurchase:null, frequency:null, hookRate:null, reach:0 };
+  const spend = parseFloat(row.spend || 0);
+  const impressions = parseInt(row.impressions || 0);
+  const linkClicks = parseInt(row.inline_link_clicks || 0) || findConv(row, 'link_click');
+  const clicks = parseInt(row.clicks || 0);
+  const reach = parseInt(row.reach || 0);
+  const purchases = findConv(row, 'purchase') || findConv(row, 'offsite_conversion.fb_pixel_purchase');
+  const revenue = findConv(row, 'purchase', 'action_values') || findConv(row, 'offsite_conversion.fb_pixel_purchase', 'action_values');
+  const ic = findConv(row, 'initiate_checkout') || findConv(row, 'offsite_conversion.fb_pixel_initiate_checkout');
+  const atc = findConv(row, 'add_to_cart') || findConv(row, 'offsite_conversion.fb_pixel_add_to_cart');
+  const videoP3 = findConv(row, 'video_view') || findConv(row, 'video_3_sec_watched_actions');
+  return {
+    spend, impressions, clicks, linkClicks, reach,
+    purchases, revenue, ic, atc,
+    cpa: purchases > 0 ? Math.round(spend / purchases) : null,
+    roas: spend > 0 ? +(revenue / spend).toFixed(2) : null,
+    aov: purchases > 0 ? Math.round(revenue / purchases) : null,
+    ctr: impressions > 0 ? +((clicks / impressions) * 100).toFixed(2) : null,
+    cpc: clicks > 0 ? Math.round(spend / clicks) : null,
+    icToPurchase: ic > 0 ? +((purchases / ic) * 100).toFixed(1) : null,
+    frequency: reach > 0 ? +(impressions / reach).toFixed(2) : null,
+    hookRate: impressions > 0 ? +((videoP3 / impressions) * 100).toFixed(1) : null,
+  };
+}
+function slotFor(name) {
+  if (!name) return null;
+  const m = name.toUpperCase().match(/^(C\d+)[_\s\-·]/);
+  return m && SLOT_MAP[m[1]] ? m[1] : null;
+}
+
+async function fetchAll(token, dateQ) {
+  const accountPath = `act_${CFG.meta.accountId}`;
+  const [camps, acct, ci, daily, campDaily, segments] = await Promise.all([
+    metaGet(token, `${accountPath}/campaigns`, `fields=id,name,status,effective_status,daily_budget,lifetime_budget,start_time,objective&limit=100`),
+    metaGet(token, `${accountPath}/insights`, `fields=${FIELDS}&${dateQ}&${ATTR}`),
+    metaGet(token, `${accountPath}/insights`, `fields=campaign_id,campaign_name,${FIELDS}&level=campaign&${dateQ}&${ATTR}&limit=50`),
+    metaGet(token, `${accountPath}/insights`, `fields=${FIELDS}&${dateQ}&${ATTR}&time_increment=1&limit=90`),
+    metaGet(token, `${accountPath}/insights`, `fields=campaign_id,campaign_name,${FIELDS}&level=campaign&${dateQ}&${ATTR}&time_increment=1&limit=500`),
+    metaGet(token, `${accountPath}/insights`, `fields=${FIELDS}&${dateQ}&${ATTR}&breakdowns=age,gender&limit=80`).catch(() => ({ data: [] })),
+  ]);
+  const acctK = buildKpis((acct.data || [])[0]) || {};
+  const im = {}; (ci.data || []).forEach(r => { im[r.campaign_id] = r; });
+  const dailyData = (daily.data || []).map(r => ({ date: r.date_start, ...buildKpis(r) }));
+  const campaignDaily = {};
+  (campDaily.data || []).forEach(r => {
+    if (!campaignDaily[r.campaign_id]) campaignDaily[r.campaign_id] = [];
+    campaignDaily[r.campaign_id].push({ date: r.date_start, ...buildKpis(r) });
+  });
+  Object.keys(campaignDaily).forEach(id => campaignDaily[id].sort((a,b) => a.date.localeCompare(b.date)));
+
+  const segmentsAgg = (segments.data || []).map(r => ({ age: r.age, gender: r.gender, ...buildKpis(r) }));
+
+  const campaigns = (camps.data || []).filter(c => c.effective_status !== 'DELETED').map(c => {
+    const k = buildKpis(im[c.id]); const slot = slotFor(c.name); const cfg = slot ? SLOT_MAP[slot] : null;
+    const eff = c.effective_status; const spend = k.spend || 0; let status = 'active';
+    if (['PAUSED','CAMPAIGN_PAUSED'].includes(eff)) status = 'paused';
+    else if (['DISAPPROVED','POLICY_VIOLATION'].includes(eff)) status = 'disapproved';
+    else if (!im[c.id] || spend === 0) status = 'active_no_spend';
+    else if (cfg && spend > cfg.killSpend && k.roas !== null && k.roas < cfg.killRoas) status = 'kill';
+    return {
+      id: c.id, name: c.name, slot, effectiveStatus: eff,
+      dailyBudget: c.daily_budget ? Math.round(parseInt(c.daily_budget) / 100) : null,
+      startTime: c.start_time, objective: c.objective, status,
+      daily: campaignDaily[c.id] || [], ...k
+    };
+  }).sort((a,b) => (b.spend||0) - (a.spend||0));
+
+  return {
+    syncedAt: new Date().toISOString(), ...acctK,
+    campaigns: campaigns.filter(c => c.slot),
+    unmappedCampaigns: campaigns.filter(c => !c.slot),
+    dailyData, campaignDaily, segments: segmentsAgg,
+  };
+}
+
+async function fetchDetail(token, campaignId, dateQ) {
+  const filter = encodeURIComponent(JSON.stringify([{ field:'campaign.id', operator:'EQUAL', value: campaignId }]));
+  const accountPath = `act_${CFG.meta.accountId}`;
+  const [sa, ai, adi, sads] = await Promise.all([
+    metaGet(token, `${campaignId}/adsets`, `fields=id,name,daily_budget,status,effective_status&limit=50`),
+    metaGet(token, `${accountPath}/insights`, `fields=adset_id,adset_name,${FIELDS}&level=adset&${dateQ}&${ATTR}&filtering=${filter}&limit=50`),
+    metaGet(token, `${accountPath}/insights`, `fields=ad_id,ad_name,adset_id,${FIELDS}&level=ad&${dateQ}&${ATTR}&filtering=${filter}&limit=100`),
+    metaGet(token, `${campaignId}/ads`, `fields=id,name,adset_id,status,effective_status&limit=100`),
+  ]);
+  const aim = {}; (ai.data || []).forEach(r => { aim[r.adset_id] = r; });
+  const adim = {}; (adi.data || []).forEach(r => { adim[r.ad_id] = r; });
+  const adsets = (sa.data || []).map(a => {
+    const k = buildKpis(aim[a.id]);
+    const db = a.daily_budget ? Math.round(parseInt(a.daily_budget) / 100) : null;
+    return { id: a.id, name: a.name, dailyBudget: db, status: a.status, effectiveStatus: a.effective_status, hasSpend: !!(aim[a.id] && k.spend > 0), ...k };
+  });
+  const ads = (sads.data || []).map(a => {
+    const k = buildKpis(adim[a.id]);
+    return { id: a.id, name: a.name, adsetId: a.adset_id, effectiveStatus: a.effective_status, hasSpend: !!(adim[a.id] && k.spend > 0), ...k };
+  });
+  return { adsets, ads };
+}
+
+/* ═══ COMPUTED METRICS ═════════════════════════════════════════════ */
+function computeActuals(data) {
+  const out = {};
+  out.mer = data.roas;
+  out.aov = data.aov;
+  out.cac = data.cpa;
+  out.frequency = data.frequency;
+  const rev = data.revenue || 0, spend = data.spend || 0, orders = data.purchases || 0;
+  out.contribMargin = Math.round(rev * CFG.business.grossMargin - spend - orders * CFG.business.shippingPerOrder);
+  // Conversion funnel metrics (all from Meta)
+  out.ctr             = data.ctr;
+  out.linkCtr         = data.impressions > 0 ? +((data.linkClicks / data.impressions) * 100).toFixed(2) : null;
+  out.cvr             = data.linkClicks > 0 ? +((data.purchases  / data.linkClicks)   * 100).toFixed(2) : null;
+  out.atcRate         = data.linkClicks > 0 ? +((data.atc        / data.linkClicks)   * 100).toFixed(2) : null;
+  out.icToPurchaseKpi = data.ic         > 0 ? +((data.purchases  / data.ic)           * 100).toFixed(2) : null;
+  out.hookRate        = data.hookRate;
+  out.cpc             = data.cpc;
+  // The rest are sourced from Shopify / Klaviyo etc — not available from Meta
+  return out;
+}
+
+function computeKpiRows(data, actuals, phase) {
+  const pk = phaseKey(phase.phaseNo);
+  const rows = [];
+  Object.entries(CFG.kpis).forEach(([key, kpi]) => {
+    const band = kpi.bands?.[pk] || null;
+    const actual = actuals[key];
+    const t = tapg({ target: band ? band[0] : null, achieved: actual, inverse: kpi.inverse, band });
+    rows.push({ key, kpi, band, actual, ...t });
+  });
+  return rows;
+}
+
+/* ═══ MARGIN RULES ENGINE ══════════════════════════════════════════ */
+function evalMarginRules(data, actuals, phase) {
+  const results = [];
+  CFG.marginRules.forEach(rule => {
+    let tripped = false, evidence = null, source = 'meta';
+    if (rule.kpi && rule.threshold != null) {
+      const v = actuals[rule.kpi];
+      source = rule.source || 'meta';
+      if (v == null) { results.push({ ...rule, status:'idle', evidence:'Needs '+source+' wiring' }); return; }
+      if (rule.op === '>')  tripped = v > rule.threshold;
+      if (rule.op === '<')  tripped = v < rule.threshold;
+      if (rule.op === '>=') tripped = v >= rule.threshold;
+      if (rule.op === '<=') tripped = v <= rule.threshold;
+      evidence = `${CFG.kpis[rule.kpi]?.label || rule.kpi}: ${fmtV(v, CFG.kpis[rule.kpi]?.fmt || '')}`;
+    } else if (rule.checkType === 'adset_roas_floor') {
+      const bad = (data.campaigns || []).filter(c =>
+        c.type !== 'reactivation' && (c.spend || 0) >= rule.spendGate && (c.roas != null) && c.roas < rule.threshold
+      );
+      tripped = bad.length > 0;
+      evidence = tripped ? `${bad.length} campaign(s) below ${rule.threshold}x at ${inr(rule.spendGate)}+: ${bad.map(b=>b.slot).join(', ')}` : 'All campaigns above floor';
+    } else if (rule.checkType === 'nc_roas_mask') {
+      // can't compute NC-ROAS without Shopify wiring
+      results.push({ ...rule, status:'idle', evidence:'Needs Shopify cohort wiring' }); return;
+    } else if (rule.checkType === 'stage_mix') {
+      const stages = { prospecting:0, retargeting:0, reactivation:0 };
+      (data.campaigns||[]).forEach(c => { const t = SLOT_MAP[c.slot]?.type; if (t) stages[t] += (c.spend||0); });
+      const total = stages.prospecting + stages.retargeting + stages.reactivation;
+      if (total === 0) { results.push({ ...rule, status:'idle', evidence:'No spend yet' }); return; }
+      const pk = phaseKey(phase.phaseNo);
+      const targetMix = CFG.stageAllocation[pk];
+      const actualProspectingPct = (stages.prospecting / total) * 100;
+      tripped = actualProspectingPct > targetMix.prospecting + rule.overBy;
+      evidence = `Prospecting at ${actualProspectingPct.toFixed(1)}% vs target ${targetMix.prospecting}% (±${rule.overBy}pp)`;
+    } else if (rule.checkType === 'inventory') {
+      results.push({ ...rule, status:'idle', evidence:'Needs Shopify inventory wiring' }); return;
+    }
+    results.push({ ...rule, status: tripped ? 'under' : 'met', evidence });
+  });
+  return results;
+}
+
+/* ═══ KILL RULES (per campaign) ════════════════════════════════════ */
+function evalKillRule(camp) {
+  if (!camp || camp.spend == null) return null;
+  const t = SLOT_MAP[camp.slot]?.type;
+  let pool = [];
+  if (t === 'prospecting')                              pool = CFG.killRules.coldProspecting;
+  else if (camp.slot === 'C7')                          pool = CFG.killRules.hotRetargetingDPA;
+  else if (t === 'retargeting' && camp.slot !== 'C7')   pool = CFG.killRules.warmRetargeting;
+  else if (t === 'reactivation')                        pool = CFG.killRules.reactivation;
+  for (const r of pool) {
+    if (camp.spend >= r.atSpend) {
+      if (r.op === '<'  && camp.roas != null && camp.roas <  r.roas) return r;
+      if (r.op === '>=' && camp.roas != null && camp.roas >= r.roas) return r;
+    }
+  }
+  // Universal frequency check
+  if (camp.frequency != null && camp.frequency > 3.5) return { level:'pause', action:'PAUSE until refresh ready', why:'Frequency over 3.5x without fresh creative', auto:true };
+  if (camp.frequency != null && camp.frequency > 3.0) return { level:'refresh', action:'REFRESH creative immediately', why:'Frequency fatigue · creative refresh needed', auto:false };
+  return null;
+}
+
+/* ═══ PER-AD ACTION ENGINE · Sheet 16 Section 3 thresholds ═════════ */
+// Returns { level, text, why } for any ad based on stage, spend, ROAS, frequency, orders.
+function evalAdAction(ad, cfg) {
+  if (!ad || !ad.hasSpend) return { level: 'idle', text: 'No spend yet', why: '' };
+  const spend = ad.spend || 0;
+  const roas = ad.roas;
+  const freq = ad.frequency;
+  const type = cfg?.type || 'prospecting';
+
+  // Universal frequency rules (apply to all stages)
+  if (freq != null && freq > 3.5) return { level: 'pause',   text: 'PAUSE · freq fatigue',     why: `Freq ${fx(freq)} over 3.5x cap` };
+  if (freq != null && freq > 3.0) return { level: 'refresh', text: 'REFRESH creative',         why: `Freq ${fx(freq)} · fatigue active` };
+
+  // Universal zero-conversion rule
+  if (ad.purchases === 0 && spend >= 5000) {
+    return { level: 'kill', text: 'KILL · 0 orders', why: `${inrK(spend)} spent · 0 conversions` };
+  }
+
+  // Cold prospecting
+  if (type === 'prospecting') {
+    if (spend >= 15000 && roas != null) {
+      if (roas <  1.0) return { level: 'kill',    text: 'KILL within 24hr',          why: `${fx(roas)} at ${inrK(spend)} · contribution-negative` };
+      if (roas <  1.4) return { level: 'refresh', text: 'REFRESH hook · give 7d',    why: `${fx(roas)} at ${inrK(spend)} · hook may be the issue` };
+      if (roas >= 1.5) return { level: 'scale',   text: 'PROMOTE · budget +20%',     why: `${fx(roas)} at ${inrK(spend)} · winner identified` };
+      return { level: 'hold', text: 'Hold · in band', why: `${fx(roas)} at ${inrK(spend)}` };
+    }
+    return { level: 'idle', text: 'Building signal', why: `${inrK(spend)} of ₹15K spend gate` };
+  }
+
+  // Hot DPA retargeting (C7)
+  if (cfg?.slot === 'C7') {
+    if (spend >= 5000 && roas != null && roas < 2.0) {
+      return { level: 'audit', text: 'CATALOG FEED AUDIT', why: `${fx(roas)} at ${inrK(spend)} · check feed images/prices · NOT creative` };
+    }
+    if (roas != null && roas >= 3.5) return { level: 'scale', text: 'SCALE +25% · DPA winner', why: `${fx(roas)} · highest-leverage scaling` };
+    if (roas != null && roas >= 2.5) return { level: 'hold',  text: 'Hold · DPA in band',     why: `${fx(roas)} · within target range` };
+    return { level: 'idle', text: 'Building signal', why: `${inrK(spend)} of ₹5K spend gate` };
+  }
+
+  // Warm retargeting (C8)
+  if (type === 'retargeting') {
+    if (spend >= 8000 && roas != null) {
+      if (roas <  1.5) return { level: 'kill',  text: 'KILL within 48hr',       why: `${fx(roas)} at ${inrK(spend)} · warm should ≥1.5x` };
+      if (roas >= 2.5) return { level: 'scale', text: 'PROMOTE · brief deriv.',  why: `${fx(roas)} · strong performer` };
+      return { level: 'hold', text: 'Hold · in band', why: `${fx(roas)} at ${inrK(spend)}` };
+    }
+    return { level: 'idle', text: 'Building signal', why: `${inrK(spend)} of ₹8K spend gate` };
+  }
+
+  // Reactivation (C9)
+  if (type === 'reactivation') {
+    if (spend >= 5000 && roas != null) {
+      if (roas <  2.5) return { level: 'refresh', text: 'REFRESH hook + window', why: `${fx(roas)} at ${inrK(spend)} · past buyers should hit 4x+` };
+      if (roas >= 5.0) return { level: 'scale',   text: 'SCALE +30% · gold',     why: `${fx(roas)} · highest-ROAS campaign in account` };
+      return { level: 'hold', text: 'Hold · in band', why: `${fx(roas)} at ${inrK(spend)}` };
+    }
+    return { level: 'idle', text: 'Building signal', why: `${inrK(spend)} of ₹5K spend gate` };
+  }
+
+  return { level: 'hold', text: 'Monitor', why: '' };
+}
+
+/* ═══ CONVERSION FUNNEL COMPUTATION ════════════════════════════════ */
+function computeFunnel(data) {
+  const i = data.impressions || 0;
+  const lc = data.linkClicks || 0;
+  const ac = data.atc || 0;
+  const ic = data.ic || 0;
+  const p = data.purchases || 0;
+  return {
+    impressions: i,
+    linkClicks: lc,
+    linkCtr:     i  > 0 ? +((lc / i)  * 100).toFixed(2) : null,
+    atc: ac,
+    atcRate:     lc > 0 ? +((ac / lc) * 100).toFixed(2) : null,
+    ic,
+    icRate:      ac > 0 ? +((ic / ac) * 100).toFixed(2) : null,
+    purchases: p,
+    icToPurchase: ic > 0 ? +((p / ic) * 100).toFixed(2) : null,
+    overallCvr:  lc > 0 ? +((p / lc) * 100).toFixed(2) : null,
+    dropImpToClick:  i  > 0 ? +((1 - lc/i)  * 100).toFixed(1) : null,
+    dropClickToAtc:  lc > 0 ? +((1 - ac/lc) * 100).toFixed(1) : null,
+    dropAtcToIc:     ac > 0 ? +((1 - ic/ac) * 100).toFixed(1) : null,
+    dropIcToBuy:     ic > 0 ? +((1 - p/ic)  * 100).toFixed(1) : null,
+  };
+}
+
+// Per-stage benchmarks (phase-agnostic; tighten via config later if needed)
+const FUNNEL_BENCH = {
+  linkCtr:      { target: 1.5, kill: 1.0, fmt: '%' },
+  atcRate:      { target: 5.0, kill: 3.0, fmt: '%' },
+  icRate:       { target: 60,  kill: 40,  fmt: '%' },
+  icToPurchase: { target: 48.8, kill: 36, fmt: '%' },
+};
+
+/* ═══ COMPONENTS ═══════════════════════════════════════════════════ */
+
+// ── 1) EXECUTIVE HEADER (status banner + headline number) ───────────
+function ExecutiveHeader({ data, actuals, phase, kpiRows }) {
+  const merRow = kpiRows.find(r => r.key === 'mer');
+  const overall = kpiRows.filter(r => r.kpi.group === 'gold' && r.status !== 'idle');
+  const met = overall.filter(r => r.status === 'met').length;
+  const risk = overall.filter(r => r.status === 'risk').length;
+  const under = overall.filter(r => r.status === 'under').length;
+  const headlineStatus = under > 0 ? 'under' : risk > 0 ? 'risk' : met > 0 ? 'met' : 'idle';
+  const headlineMsg = {
+    met:   `Account is on plan · ${met} gold KPIs meeting target`,
+    risk:  `Watch carefully · ${risk} gold KPIs at risk`,
+    under: `Action needed · ${under} gold KPI${under>1?'s':''} below target`,
+    idle:  'Awaiting first data sync',
+  }[headlineStatus];
+  return (<div className="mb-4">
+    <div className={`status-banner ${headlineStatus}`}>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <div className="sec-hd">Phase {phase.phaseNo} · {phase.name} · Day {phase.dayOfPhase} of {phase.days}</div>
+          <div className="flex items-baseline gap-4 mt-1 flex-wrap">
+            <div>
+              <div className="text-[10px] uppercase tracking-widest text-stone-500">MER · Yesterday</div>
+              <div className={`text-4xl font-extrabold mono ${stColor(merRow?.status)}`}>{merRow?.actual != null ? fx(merRow.actual) : '—'}</div>
+            </div>
+            <div className="border-l border-stone-700/40 pl-4">
+              <div className="text-[10px] uppercase tracking-widest text-stone-500">Goal · Phase {phase.phaseNo}</div>
+              <div className="text-xl font-bold mono text-stone-300">{fmtBand(merRow?.band, 'x')}</div>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          <span className={`chip ${headlineStatus} text-[11px]`} style={{padding:'4px 12px'}}>{STATUS_LABEL[headlineStatus]}</span>
+          <div className="text-right text-[11px] text-stone-400 leading-tight">
+            <div>{headlineMsg}</div>
+            <div className="mono text-stone-500 mt-0.5">{met} met · {risk} risk · {under} below</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>);
+}
+
+// ── 2) EXECUTIVE SUMMARY (all gold + key silver KPIs, 5-column table) ──
+function ExecutiveSummary({ kpiRows, phase }) {
+  const [open, setOpen] = useState(true);
+  const [filter, setFilter] = useState('all'); // all/gold/silver
+  const filtered = kpiRows.filter(r => filter === 'all' || r.kpi.group === filter);
+  return (<div className="card mb-3">
+    <div className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[.02] select-none" onClick={()=>setOpen(!open)}>
+      <div>
+        <div className="sec-hd">Executive Summary · Phase {phase.phaseNo} targets</div>
+        <div className="text-xl font-bold text-stone-100 mt-0.5">Goal · Where We Are · Status · What This Means · What To Do</div>
+      </div>
+      <span className="text-stone-600">{open ? '▲' : '▼'}</span>
+    </div>
+    {open && (<div className="border-t border-stone-800/40 sd">
+      <div className="px-4 py-2.5 border-b border-stone-800/30 flex flex-wrap items-center gap-2">
+        <span className="sec-hd !mb-0">Show</span>
+        {['all','gold','silver'].map(f => (
+          <button key={f} onClick={e=>{e.stopPropagation();setFilter(f);}} className={`pill ${filter===f?'active':''}`}>{f === 'all' ? 'All KPIs' : f === 'gold' ? 'Gold · CEO view' : 'Silver · tactical'}</button>
+        ))}
+        <span className="text-[10px] text-stone-500 ml-auto mono">{filtered.length} of {kpiRows.length} KPIs</span>
+      </div>
+      <div className="hidden md:grid items-center px-4 py-2 border-b border-stone-800/30 text-[9px] uppercase tracking-widest text-stone-500 mono"
+           style={{gridTemplateColumns:'2.2fr 1.3fr 1.3fr 0.9fr 2fr'}}>
+        <div>KPI</div><div className="text-right">Goal (Phase {phase.phaseNo})</div><div className="text-right">Where We Are</div><div className="text-center">Status</div><div>What This Means · What To Do</div>
+      </div>
+      <div className="divide-y divide-stone-800/30">
+        {filtered.map(r => (
+          <div key={r.key} className="row-h px-4 py-2.5 grid grid-cols-2 md:grid-cols-[2.2fr_1.3fr_1.3fr_0.9fr_2fr] gap-x-3 gap-y-1 items-center">
+            <div className="col-span-2 md:col-span-1">
+              <div className="flex items-center gap-2">
+                <span className={`dot ${r.status}`}/>
+                <span className="text-sm font-semibold text-stone-100">{r.kpi.label}</span>
+                {r.kpi.group === 'gold' && <span className="chip met text-[8px] !py-0">GOLD</span>}
+              </div>
+              <div className="text-[10px] text-stone-600 mt-0.5 ml-4 mono">Source: {r.kpi.source} · {r.kpi.frequency}</div>
+            </div>
+            <div className="text-right md:text-right">
+              <div className="text-[8px] uppercase text-stone-600 md:hidden mono">Goal</div>
+              <div className="mono text-sm text-stone-300">{fmtBand(r.band, r.kpi.fmt)}</div>
+              {r.kpi.baseline != null && <div className="text-[9px] mono text-stone-600">today: {fmtV(r.kpi.baseline, r.kpi.fmt)}</div>}
+            </div>
+            <div className="text-right">
+              <div className="text-[8px] uppercase text-stone-600 md:hidden mono">Where We Are</div>
+              <div className={`mono text-lg font-bold ${stColor(r.status)}`}>{fmtV(r.actual, r.kpi.fmt)}</div>
+              {r.gapPct != null && r.status !== 'met' && (
+                <div className={`text-[10px] mono ${stColor(r.status)}`}>{r.gapPct >= 0 ? 'over' : 'under'} by {Math.abs(r.gapPct)}%</div>
+              )}
+            </div>
+            <div className="text-center col-span-2 md:col-span-1">
+              <div className="text-[8px] uppercase text-stone-600 md:hidden mono">Status</div>
+              <span className={`chip ${r.status} text-[9px]`}>{STATUS_LABEL[r.status]}</span>
+            </div>
+            <div className="col-span-2 md:col-span-1">
+              <div className="text-[8px] uppercase text-stone-600 md:hidden mono">What This Means</div>
+              <div className="text-[11px] text-stone-300 leading-snug">{r.kpi.mgmt}</div>
+              {r.status === 'under' && <div className="text-[11px] text-amber-400 mt-1 leading-snug"><span className="text-stone-600">▸ Do:</span> {r.kpi.breachAction}</div>}
+              {r.status === 'idle' && <div className="text-[10px] text-stone-600 mt-0.5 italic">Needs {r.kpi.source} wired into dashboard</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>)}
+  </div>);
+}
+
+// ── 3) MARGIN PROTECTION RULES ──────────────────────────────────────
+function MarginRulesPanel({ ruleResults }) {
+  const tripped = ruleResults.filter(r => r.status === 'under');
+  const idle    = ruleResults.filter(r => r.status === 'idle');
+  const ok      = ruleResults.filter(r => r.status === 'met');
+  const headline = tripped.length > 0 ? 'under' : ok.length === ruleResults.length - idle.length ? 'met' : 'risk';
+  return (<div className={`card mb-3 ${tripped.length > 0 ? 'border-l-2 !border-l-red-700' : ''}`}>
+    <div className="flex items-center justify-between px-4 py-3">
+      <div>
+        <div className="sec-hd">Margin Protection · 10 Rules · Section 14</div>
+        <div className="text-xl font-bold text-stone-100 mt-0.5">{tripped.length === 0 ? 'All rules holding' : `${tripped.length} rule${tripped.length>1?'s':''} TRIPPED — action required`}</div>
+      </div>
+      <div className="flex items-center gap-1.5">
+        {ok.length > 0 && <span className="chip met text-[9px]">{ok.length} holding</span>}
+        {tripped.length > 0 && <span className="chip under text-[9px]">{tripped.length} tripped</span>}
+        {idle.length > 0 && <span className="chip idle text-[9px]">{idle.length} pending data</span>}
+      </div>
+    </div>
+    <div className="border-t border-stone-800/40 divide-y divide-stone-800/30">
+      {ruleResults.map(r => (
+        <div key={r.id} className={`row-h px-4 py-2.5 flex items-start gap-3 ${r.status === 'under' ? 'bg-red-950/10' : ''}`}>
+          <span className={`dot ${r.status} mt-1.5 flex-shrink-0`}/>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <span className="mono text-[10px] text-stone-500 font-bold">{r.id}</span>
+              <span className="text-sm font-semibold text-stone-100">{r.name}</span>
+              <span className={`chip ${r.status} text-[9px]`}>{r.status === 'met' ? 'HOLDING' : r.status === 'under' ? 'TRIPPED' : 'PENDING'}</span>
+              {r.severity === 'high' && <span className="chip under text-[8px] !py-0">HIGH</span>}
+            </div>
+            <div className="text-[11px] text-stone-400 mt-1 leading-snug"><span className="text-stone-600">Trigger:</span> {r.trigger}</div>
+            {r.evidence && <div className="text-[11px] mono text-stone-500 mt-0.5">▸ {r.evidence}</div>}
+            {r.status === 'under' && <div className="text-[11px] text-amber-400 mt-1"><span className="text-stone-600">Do:</span> {r.action} <span className="text-stone-600">·</span> <span className="text-stone-500 italic">{r.why}</span></div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>);
+}
+
+// ── 4) CONVERSION FUNNEL · Impressions → Click → ATC → IC → Purchase ─
+function ConversionFunnelPanel({ data }) {
+  const [open, setOpen] = useState(true);
+  if (!data || (data.impressions || 0) === 0) return null;
+  const f = computeFunnel(data);
+  // 5 stages with cascading bar widths
+  const stages = [
+    { key: 'imp',  name: 'Impressions',  value: f.impressions, fmt: 'n',   bar: 100, dropFromPrev: null,  rateFromPrev: null,                        rateLabel: '',         note: 'Total ad views' },
+    { key: 'lc',   name: 'Link Clicks',  value: f.linkClicks,  fmt: 'n',   bar: f.impressions > 0 ? Math.max(2, f.linkClicks / f.impressions * 100) : 0,  dropFromPrev: f.dropImpToClick, rateFromPrev: f.linkCtr,       rateLabel: 'Link CTR', note: 'People who tap the ad', bench: FUNNEL_BENCH.linkCtr },
+    { key: 'atc',  name: 'Add to Cart',  value: f.atc,         fmt: 'n',   bar: f.impressions > 0 ? Math.max(1.5, f.atc / f.impressions * 100 * 4) : 0, dropFromPrev: f.dropClickToAtc, rateFromPrev: f.atcRate,       rateLabel: 'ATC rate', note: 'PDP merch · price · trust signal', bench: FUNNEL_BENCH.atcRate },
+    { key: 'ic',   name: 'Init. Checkout', value: f.ic,        fmt: 'n',   bar: f.impressions > 0 ? Math.max(1, f.ic / f.impressions * 100 * 8) : 0,    dropFromPrev: f.dropAtcToIc,    rateFromPrev: f.icRate,        rateLabel: 'IC rate',  note: 'Cart → checkout intent', bench: FUNNEL_BENCH.icRate },
+    { key: 'buy',  name: 'Purchase',     value: f.purchases,   fmt: 'n',   bar: f.impressions > 0 ? Math.max(0.8, f.purchases / f.impressions * 100 * 12) : 0, dropFromPrev: f.dropIcToBuy, rateFromPrev: f.icToPurchase,  rateLabel: 'IC → Buy', note: 'Razorpay/GoKwik checkout health (was 48.8% · 36% today)', bench: FUNNEL_BENCH.icToPurchase },
+  ];
+  // The biggest leak stage = highest drop-off
+  const drops = stages.slice(1).map(s => ({ name: s.name, drop: s.dropFromPrev, rate: s.rateFromPrev, label: s.rateLabel, bench: s.bench }));
+  const biggestLeak = drops.reduce((a, b) => (a.drop || 0) > (b.drop || 0) ? a : b);
+  // Worst stage vs benchmark
+  const stageStatus = s => {
+    if (!s.bench || s.rateFromPrev == null) return 'idle';
+    if (s.rateFromPrev >= s.bench.target) return 'met';
+    if (s.rateFromPrev >= s.bench.kill)   return 'risk';
+    return 'under';
+  };
+  const worstStage = stages.slice(1).reduce((worst, cur) => {
+    const ws = stageStatus(worst), cs = stageStatus(cur);
+    const rank = { under:3, risk:2, met:1, idle:0 };
+    return rank[cs] > rank[ws] ? cur : worst;
+  });
+  const worstStatus = stageStatus(worstStage);
+  return (<div className="card mb-3">
+    <div className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[.02] select-none" onClick={()=>setOpen(!open)}>
+      <div>
+        <div className="sec-hd">Conversion Funnel · CRO Diagnostic · Section 4 of plan</div>
+        <div className="text-xl font-bold text-stone-100 mt-0.5">From Impression to Purchase · {f.overallCvr != null ? <span className="text-amber-500 mono">{pct(f.overallCvr,2)} overall CVR</span> : <span className="text-stone-500 text-base">no data</span>}</div>
+      </div>
+      <div className="flex items-center gap-2">
+        {worstStatus === 'under' && <span className="chip under text-[9px]">{worstStage.name} leaking</span>}
+        {worstStatus === 'risk'  && <span className="chip risk text-[9px]">{worstStage.name} at risk</span>}
+        {worstStatus === 'met'   && <span className="chip met text-[9px]">All stages healthy</span>}
+        <span className="text-stone-600">{open?'▲':'▼'}</span>
+      </div>
+    </div>
+    {open && (<div className="border-t border-stone-800/40 sd">
+      {/* Stage cards */}
+      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+        {stages.map((s, idx) => {
+          const stat = stageStatus(s);
+          return (<div key={s.key} className="relative">
+            {idx > 0 && (<div className="hidden lg:block absolute -left-1.5 top-1/2 -translate-y-1/2 text-stone-700 text-lg">→</div>)}
+            <div className={`card !border-stone-800/60 p-2.5 ${stat==='under'?'!border-red-900/50':stat==='risk'?'!border-amber-900/40':''}`}>
+              <div className="flex items-baseline justify-between">
+                <div className="text-[9px] uppercase tracking-widest text-stone-500 mono">{s.name}</div>
+                {s.bench && <span className={`dot ${stat}`}/>}
+              </div>
+              <div className="text-2xl font-extrabold mono text-stone-100 mt-1">{num(s.value)}</div>
+              {s.rateFromPrev != null && (<div className="text-[10px] mt-1">
+                <span className="text-stone-600 mono">{s.rateLabel} </span>
+                <span className={`mono font-bold ${stColor(stat)}`}>{pct(s.rateFromPrev, 2)}</span>
+                {s.bench && <span className="text-stone-600 mono"> · goal ≥{s.bench.target}%</span>}
+              </div>)}
+              {s.dropFromPrev != null && (<div className="text-[10px] text-stone-500 mono mt-0.5">{pct(s.dropFromPrev, 1)} drop-off</div>)}
+              <div className="text-[10px] text-stone-600 mt-1.5 leading-snug">{s.note}</div>
+            </div>
+          </div>);
+        })}
+      </div>
+      {/* Leak diagnosis bar */}
+      <div className="border-t border-stone-800/40 px-4 py-3">
+        <div className="sec-hd mb-1.5">Biggest Funnel Leak</div>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <span className="text-sm font-bold text-stone-100">{biggestLeak.name}</span>
+            <span className="mono text-stone-500 text-[11px] ml-2">losing {pct(biggestLeak.drop, 1)} at this stage</span>
+          </div>
+          <div className="text-[11px] text-stone-400 mono">
+            {biggestLeak.label}: <span className="text-stone-200 font-bold">{pct(biggestLeak.rate, 2)}</span>
+            {biggestLeak.bench && <span className="text-stone-600"> · goal ≥{biggestLeak.bench.target}%</span>}
+          </div>
+        </div>
+        <div className="text-[11px] text-amber-400 mt-1.5">
+          {worstStage.key === 'lc'  && '▸ Hook/creative or audience problem — first-3-sec audit and refresh top ads'}
+          {worstStage.key === 'atc' && '▸ Landing page problem — bounce, pricing visibility, trust badges, mobile speed'}
+          {worstStage.key === 'ic'  && '▸ Cart-to-checkout friction — UPI first, free-ship threshold visible, sticky CTA'}
+          {worstStage.key === 'buy' && '▸ Checkout completion problem — OTP delivery rate, address autofill, payment ordering. PDP Section 8 CO-1–CO-8.'}
+        </div>
+      </div>
+    </div>)}
+  </div>);
+}
+
+// ── 5) FUNNEL STAGE ALLOCATION ──────────────────────────────────────
+function StagePanel({ data, phase }) {
+  const stages = { prospecting:{spend:0,rev:0,orders:0}, retargeting:{spend:0,rev:0,orders:0}, reactivation:{spend:0,rev:0,orders:0} };
+  (data.campaigns||[]).forEach(c => { const t = SLOT_MAP[c.slot]?.type; if (t) { stages[t].spend += c.spend||0; stages[t].rev += c.revenue||0; stages[t].orders += c.purchases||0; } });
+  const total = stages.prospecting.spend + stages.retargeting.spend + stages.reactivation.spend;
+  const targetMix = CFG.stageAllocation[phaseKey(phase.phaseNo)];
+  const order = ['prospecting','retargeting','reactivation'];
+  return (<div className="card mb-3">
+    <div className="px-4 py-3">
+      <div className="sec-hd">Funnel Stage Allocation · Phase {phase.phaseNo} Target</div>
+      <div className="text-base font-bold text-stone-100 mt-0.5">Where the money is going vs where it should</div>
+    </div>
+    <div className="border-t border-stone-800/40 px-4 py-3 divide-y divide-stone-800/30">
+      {order.map(t => {
+        const actualPct = total > 0 ? +(stages[t].spend / total * 100).toFixed(1) : 0;
+        const targetPct = targetMix[t];
+        const gap = actualPct - targetPct;
+        const status = Math.abs(gap) <= 5 ? 'met' : Math.abs(gap) <= 10 ? 'risk' : 'under';
+        const roas = stages[t].spend > 0 ? +(stages[t].rev/stages[t].spend).toFixed(2) : null;
+        return (<div key={t} className="py-2.5 first:pt-0 last:pb-0 grid grid-cols-2 md:grid-cols-[1fr_1fr_1fr_1fr_1fr] gap-2 items-center">
+          <div className="col-span-2 md:col-span-1">
+            <div className="text-sm font-bold text-stone-100 uppercase">{t}</div>
+            <div className="text-[10px] mono text-stone-500">{(data.campaigns||[]).filter(c=>SLOT_MAP[c.slot]?.type===t).length} camp · ROAS {fx(roas)}</div>
+          </div>
+          <div>
+            <div className="text-[9px] uppercase text-stone-600 mono">Goal</div>
+            <div className="mono text-sm text-stone-300">{targetPct}%</div>
+          </div>
+          <div>
+            <div className="text-[9px] uppercase text-stone-600 mono">Actual</div>
+            <div className={`mono text-base font-bold ${stColor(status)}`}>{actualPct}%</div>
+          </div>
+          <div>
+            <div className="text-[9px] uppercase text-stone-600 mono">Spend</div>
+            <div className="mono text-sm text-stone-300">{inrK(stages[t].spend)}</div>
+          </div>
+          <div className="text-right">
+            <span className={`chip ${status} text-[9px]`}>{status==='met'?'ON TARGET':status==='risk'?'OFF BY '+Math.abs(gap).toFixed(0)+'pp':'WAY OFF '+Math.abs(gap).toFixed(0)+'pp'}</span>
+          </div>
+        </div>);
+      })}
+    </div>
+  </div>);
+}
+
+// ── 5) AUDIENCE SEGMENTS (age × gender) ─────────────────────────────
+function SegmentsPanel({ data, phase }) {
+  if (!data.segments || data.segments.length === 0) {
+    return (<div className="card mb-3 px-4 py-3">
+      <div className="sec-hd">Audience Segments · Age × Gender</div>
+      <div className="text-[11px] text-stone-500 italic mt-1">No segment breakdown available — Meta breakdown call returned empty. Ensure account has age/gender data permission.</div>
+    </div>);
+  }
+  // Map each segment to actuals
+  const map = {};
+  data.segments.forEach(s => {
+    const k = s.gender + '.' + s.age;
+    if (!map[k]) map[k] = { spend:0, rev:0, orders:0 };
+    map[k].spend += s.spend || 0;
+    map[k].rev += s.revenue || 0;
+    map[k].orders += s.purchases || 0;
+  });
+  const totalSpend = Object.values(map).reduce((s,v)=>s+v.spend,0);
+  const rows = CFG.segments.map(seg => {
+    const k = seg.key.toLowerCase();
+    const ageOnly = k.split('.')[1];
+    const genOnly = k.startsWith('f') ? 'female' : 'male';
+    const composite = `${genOnly}.${ageOnly}`;
+    const actual = map[composite] || { spend:0, rev:0, orders:0 };
+    const roas = actual.spend > 0 ? +(actual.rev/actual.spend).toFixed(2) : null;
+    const spendPct = totalSpend > 0 ? +(actual.spend/totalSpend*100).toFixed(1) : 0;
+    let status = 'idle';
+    if (seg.kill) {
+      // Must be zero
+      if (actual.spend > 0) status = 'under';
+      else status = 'met';
+    } else if (seg.targetRoas && roas != null) {
+      status = evalBand(roas, seg.targetRoas, false);
+    }
+    return { seg, actual, roas, spendPct, status };
+  });
+  return (<div className="card mb-3">
+    <div className="px-4 py-3">
+      <div className="sec-hd">Audience Segments · Age × Gender · Action Plan Section 9</div>
+      <div className="text-base font-bold text-stone-100 mt-0.5">Goldmine vs Kill list</div>
+    </div>
+    <div className="border-t border-stone-800/40 hidden md:grid items-center px-4 py-2 border-b border-stone-800/30 text-[9px] uppercase tracking-widest text-stone-500 mono"
+         style={{gridTemplateColumns:'1.4fr 0.8fr 1fr 1fr 0.9fr 1.6fr'}}>
+      <div>Segment</div><div className="text-right">Goal ROAS</div><div className="text-right">Actual ROAS</div><div className="text-right">Spend Share</div><div className="text-center">Status</div><div>Action</div>
+    </div>
+    <div className="divide-y divide-stone-800/30">
+      {rows.map(r => (<div key={r.seg.key} className={`row-h px-4 py-2.5 grid grid-cols-2 md:grid-cols-[1.4fr_0.8fr_1fr_1fr_0.9fr_1.6fr] gap-x-3 gap-y-1 items-center ${r.seg.kill && r.actual.spend > 0 ? 'bg-red-950/20' : ''}`}>
+        <div className="col-span-2 md:col-span-1">
+          <div className="flex items-center gap-2">
+            <span className={`dot ${r.status}`}/>
+            <span className="text-sm font-semibold text-stone-100">{r.seg.label}</span>
+          </div>
+          <div className="text-[10px] mono text-stone-500 mt-0.5 ml-3.5">{r.seg.tag} · {r.seg.revShare}% rev historical</div>
+        </div>
+        <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Goal</div><div className="mono text-sm text-stone-300">{r.seg.targetRoas ? fmtBand(r.seg.targetRoas,'x') : 'N/A'}</div></div>
+        <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Actual</div><div className={`mono text-base font-bold ${stColor(r.status)}`}>{fx(r.roas)}</div><div className="text-[9px] mono text-stone-600">spent {inrK(r.actual.spend)}</div></div>
+        <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Spend</div><div className="mono text-sm text-stone-300">{r.spendPct}%</div>{r.seg.targetSpendShare && <div className="text-[9px] mono text-stone-600">tgt {r.seg.targetSpendShare[0]}-{r.seg.targetSpendShare[1]}%</div>}</div>
+        <div className="text-center col-span-2 md:col-span-1"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Status</div><span className={`chip ${r.status} text-[9px]`}>{r.seg.kill ? (r.actual.spend > 0 ? 'EXCLUSION BROKEN' : 'EXCLUDED OK') : STATUS_LABEL[r.status]}</span></div>
+        <div className="col-span-2 md:col-span-1"><div className="text-[11px] text-stone-400 leading-snug">{r.seg.action}</div>{r.seg.kill && r.actual.spend > 0 && <div className="text-[11px] text-red-400 mt-1">▸ Audit Meta exclusions immediately — money leaking to excluded segment.</div>}</div>
+      </div>))}
+    </div>
+  </div>);
+}
+
+// ── 6) CAMPAIGN MATRIX (9 cards) ────────────────────────────────────
+function CampaignCard({ cfg, data, days, phase, onExpand }) {
+  const pk = phaseKey(phase.phaseNo);
+  const targetBudget = cfg.dailyBudget[pk];
+  const predicted = cfg.predictedRoas[pk];
+  const has = data && (data.spend || 0) > 0;
+  const expectedSpend = targetBudget * days;
+  const spendR = expectedSpend > 0 ? tapg({ target: expectedSpend, achieved: data?.spend||0, cumulative: true }) : null;
+  const roasR  = predicted ? tapg({ target: predicted[0], achieved: data?.roas, band: predicted }) : null;
+  const cpaR   = tapg({ target: cfg.cpaCap, achieved: data?.cpa, inverse: true });
+  const killCheck = data ? evalKillRule(data) : null;
+  const overallStatus = killCheck && killCheck.level === 'kill' ? 'under'
+    : [spendR, roasR, cpaR].filter(x=>x).map(x=>x.status).includes('under') ? 'under'
+    : [spendR, roasR, cpaR].filter(x=>x).map(x=>x.status).includes('risk') ? 'risk'
+    : has ? 'met' : 'idle';
+  return (<div onClick={() => data && onExpand()}
+       className={`card lift cursor-pointer ${!data ? 'opacity-40 cursor-default' : ''} ${overallStatus==='under'?'!border-red-900/40':overallStatus==='risk'?'!border-amber-900/40':''}`}>
+    <div className="p-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="mono text-[11px] font-bold text-stone-200">{cfg.slot}</span>
+          <span className="text-[9px] uppercase text-stone-500 tracking-wider">{cfg.type === 'prospecting' ? 'PROS' : cfg.type === 'retargeting' ? 'RETARGET' : 'REACT'}</span>
+          {cfg.product === 'core_pair' && <span className="text-[8px] text-amber-500 font-bold">CP</span>}
+          {cfg.product === 'trio' && <span className="text-[8px] text-emerald-500 font-bold">TRIO</span>}
+          {cfg.product === 'dpa' && <span className="text-[8px] text-blue-400 font-bold">DPA</span>}
+        </div>
+        <span className={`dot ${overallStatus}`} title={STATUS_LABEL[overallStatus]}/>
+      </div>
+      <div className="text-[10px] text-stone-500 leading-snug mb-2 line-clamp-2 min-h-[26px]">{cfg.name}</div>
+      <div className="mb-2">
+        <span className={`chip ${overallStatus} text-[9px] w-full justify-center`} style={{display:'flex',padding:'4px 6px'}}>{killCheck ? killCheck.action.toUpperCase().slice(0,20) : STATUS_LABEL[overallStatus]}</span>
+      </div>
+      {/* TAPG mini-rows */}
+      <div className="space-y-2">
+        {/* ROAS */}
+        <div>
+          <div className="flex items-center justify-between text-[9px] uppercase text-stone-600 mono">
+            <span>ROAS</span><span className={stColor(roasR?.status)}>{roasR ? STATUS_LABEL[roasR.status] : '—'}</span>
+          </div>
+          <div className="grid grid-cols-4 gap-1 mt-0.5 text-[10px] mono">
+            <div><div className="text-stone-700 text-[8px]">GOAL</div><div className="text-stone-300">{predicted ? `${predicted[0]}-${predicted[1]}x` : '—'}</div></div>
+            <div><div className="text-stone-700 text-[8px]">ACTUAL</div><div className={`font-bold ${stColor(roasR?.status)}`}>{fx(data?.roas)}</div></div>
+            <div><div className="text-stone-700 text-[8px]">GAP</div><div className="text-stone-500">{roasR?.gapPct==null?'—':(roasR.gapPct>=0?'+':'')+roasR.gapPct+'%'}</div></div>
+            <div><div className="text-stone-700 text-[8px]">KILL</div><div className="text-stone-600">&lt;{cfg.killRoas}x</div></div>
+          </div>
+        </div>
+        {/* CPA */}
+        <div>
+          <div className="flex items-center justify-between text-[9px] uppercase text-stone-600 mono">
+            <span>CPA</span><span className={stColor(cpaR?.status)}>{cpaR ? STATUS_LABEL[cpaR.status] : '—'}</span>
+          </div>
+          <div className="grid grid-cols-4 gap-1 mt-0.5 text-[10px] mono">
+            <div><div className="text-stone-700 text-[8px]">CAP</div><div className="text-stone-300">{inr(cfg.cpaCap)}</div></div>
+            <div><div className="text-stone-700 text-[8px]">ACTUAL</div><div className={`font-bold ${stColor(cpaR?.status)}`}>{inr(data?.cpa)}</div></div>
+            <div><div className="text-stone-700 text-[8px]">OVER</div><div className="text-stone-500">{cpaR?.pending==null?'—':cpaR.pending===0?'0':'+'+inr(cpaR.pending)}</div></div>
+            <div><div className="text-stone-700 text-[8px]">ORDERS</div><div className="text-stone-300">{data?.purchases||0}</div></div>
+          </div>
+        </div>
+        {/* Spend pace */}
+        {spendR && <div>
+          <div className="flex items-center justify-between text-[9px] uppercase text-stone-600 mono">
+            <span>SPEND PACE</span><span className={stColor(spendR.status)}>{STATUS_LABEL[spendR.status]}</span>
+          </div>
+          <div className="grid grid-cols-4 gap-1 mt-0.5 text-[10px] mono">
+            <div><div className="text-stone-700 text-[8px]">GOAL</div><div className="text-stone-300">{inrK(expectedSpend)}</div></div>
+            <div><div className="text-stone-700 text-[8px]">SPENT</div><div className={`font-bold ${stColor(spendR.status)}`}>{inrK(data?.spend||0)}</div></div>
+            <div><div className="text-stone-700 text-[8px]">LEFT</div><div className="text-stone-500">{spendR.pending===0?'0':inrK(spendR.pending)}</div></div>
+            <div><div className="text-stone-700 text-[8px]">GAP</div><div className={`font-bold ${stColor(spendR.status)}`}>{spendR.gapPct==null?'—':(spendR.gapPct>=0?'+':'')+spendR.gapPct+'%'}</div></div>
+          </div>
+        </div>}
+      </div>
+      <div className="mt-2 pt-2 border-t border-stone-800/40 text-[10px] mono">
+        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+          <div className="text-stone-600">CVR <span className={`font-bold ${data?.linkClicks > 0 && data?.purchases > 0 && (data.purchases/data.linkClicks*100) >= 1.5 ? 'text-emerald-400' : (data?.linkClicks > 0 && data?.purchases > 0 ? 'text-amber-400' : 'text-stone-400')}`}>{data?.linkClicks > 0 ? pct(data.purchases/data.linkClicks*100, 2) : '—'}</span></div>
+          <div className="text-stone-600">CTR <span className="font-bold text-stone-300">{data?.linkClicks > 0 && data?.impressions > 0 ? pct(data.linkClicks/data.impressions*100, 2) : '—'}</span></div>
+          <div className="text-stone-600">AOV <span className="font-bold text-stone-300">{inr(data?.aov)}</span></div>
+          <div className="text-stone-600">Freq <span className={`font-bold ${data?.frequency>3.5?'text-red-400':data?.frequency>3.0?'text-amber-400':'text-stone-300'}`}>{fx(data?.frequency)}</span></div>
+        </div>
+        <div className="text-right mt-1 text-amber-500 font-bold">tap for ad-level →</div>
+      </div>
+    </div>
+  </div>);
+}
+
+// ── 7) CAMPAIGN DETAIL MODAL (full TAPG + kill rule + chart + ads) ──
+function CampaignDetail({ cfg, data, detail, loading, dateLabel, days, phase, onClose, onReload }) {
+  const pk = phaseKey(phase.phaseNo);
+  const [chartMetric, setChartMetric] = useState('roas');
+  const targetBudget = cfg.dailyBudget[pk];
+  const predicted = cfg.predictedRoas[pk];
+  const expectedSpend = targetBudget * days;
+  const rows = [
+    { label: 'Spend (pace)', fmt: '₹', cumulative: true, target: expectedSpend, achieved: data.spend||0, note: `${days}d × ₹${targetBudget.toLocaleString('en-IN')}/day budget` },
+    { label: 'Revenue (pace)', fmt: '₹', cumulative: true, target: Math.round(expectedSpend*cfg.killRoas), achieved: data.revenue||0, note: `expected at kill-floor ${cfg.killRoas}x` },
+    { label: 'Orders (pace)', fmt: 'n', cumulative: true, target: Math.max(1,Math.round(expectedSpend/cfg.targetCpa)), achieved: data.purchases||0, note: `at target CPA ${inr(cfg.targetCpa)}` },
+    { label: 'ROAS', fmt: 'x', band: predicted, target: predicted[0], achieved: data.roas, note: `P${phase.phaseNo} target ${fmtBand(predicted,'x')} · kill <${cfg.killRoas}x` },
+    { label: 'CPA', fmt: '₹', inverse: true, target: cfg.cpaCap, achieved: data.cpa, note: `target ${inr(cfg.targetCpa)} · cap ${inr(cfg.cpaCap)}` },
+    { label: 'AOV', fmt: '₹', target: cfg.targetAov, achieved: data.aov, note: cfg.product==='trio'?'Trio anchor ₹10,950':cfg.product==='core_pair'?'Core Pair anchor ₹7,800':'mixed cart target' },
+    { label: 'CTR', fmt: '%', target: 1.5, achieved: data.ctr, note: 'benchmark ≥1.5%' },
+    { label: 'CPC', fmt: '₹', inverse: true, target: 60, achieved: data.cpc, note: 'benchmark ≤₹60' },
+    { label: 'Frequency', fmt: 'x', inverse: true, target: cfg.freqCap, achieved: data.frequency, note: `cap ${cfg.freqCap}x · refresh above` },
+    { label: 'IC → Purchase', fmt: '%', target: 40, achieved: data.icToPurchase, note: 'Razorpay health · ≥40%' },
+  ].map(r => ({ ...r, ...tapg({ target: r.target, achieved: r.achieved, inverse: r.inverse, cumulative: r.cumulative, band: r.band }) }));
+
+  const killCheck = evalKillRule(data);
+  const dailySeries = (data.daily || []).filter(d => (d.spend||0) > 0);
+  const CHART_M = {
+    roas: { label:'ROAS', fmt:'x', target:cfg.killRoas, colour:'#f59e0b', accessor:d=>d.roas },
+    spend:{ label:'Spend', fmt:'₹', target:targetBudget, colour:'#a8a29e', accessor:d=>d.spend },
+    revenue:{ label:'Revenue', fmt:'₹', target:null, colour:'#10b981', accessor:d=>d.revenue },
+    cpa:  { label:'CPA', fmt:'₹', target:cfg.targetCpa, kill:cfg.cpaCap, colour:'#f87171', accessor:d=>d.cpa, inverse:true },
+    aov:  { label:'AOV', fmt:'₹', target:cfg.targetAov, colour:'#34d399', accessor:d=>d.aov },
+    purchases:{ label:'Orders', fmt:'n', target:null, colour:'#fbbf24', accessor:d=>d.purchases },
+    frequency:{ label:'Frequency', fmt:'x', target:cfg.freqCap, kill:cfg.freqCap*1.2, colour:'#fb923c', accessor:d=>d.frequency, inverse:true },
+  };
+
+  return (<div className="fixed inset-0 z-50 flex flex-col" style={{background:'#0d0c0b'}}>
+    <div className="flex-shrink-0 border-b border-stone-800/60" style={{background:'rgba(13,12,11,.96)',backdropFilter:'blur(10px)'}}>
+      <div className="wrap flex items-start justify-between gap-3 py-3">
+        <div className="min-w-0 flex-1">
+          <div className="sec-hd flex flex-wrap items-center gap-1">
+            {cfg.slot} · {cfg.type.toUpperCase()} · <span className="text-amber-500">{dateLabel}</span>
+            {cfg.product === 'core_pair' && <span className="chip met text-[9px] ml-2">CORE PAIR · ₹7,800</span>}
+            {cfg.product === 'trio'      && <span className="chip met text-[9px] ml-2">TRIO · ₹10,950</span>}
+            {cfg.product === 'dpa'       && <span className="chip idle text-[9px] ml-2">DPA · CATALOG</span>}
+          </div>
+          <h2 className="text-base sm:text-xl font-bold text-stone-50 leading-tight mt-0.5 truncate">{cfg.name}</h2>
+          <div className="text-[10px] text-stone-600 mt-0.5 mono">{data.id} · {data.name} · {cfg.audience}</div>
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <a href={`https://business.facebook.com/adsmanager/manage/campaigns?act=${CFG.meta.accountId}&selected_campaign_ids=${data.id}`} target="_blank" rel="noreferrer" className="text-[9px] px-2 py-1.5 border border-stone-700 text-stone-400 hover:text-stone-200 rounded-sm">↗ META</a>
+          <button onClick={onReload} className="text-[9px] px-2 py-1.5 border border-stone-700 text-stone-400 hover:text-stone-200 rounded-sm">{loading?<span className="spin">↻</span>:'↻'}</button>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-100 text-lg leading-none w-8 h-8 flex items-center justify-center border border-stone-800 hover:border-stone-600 rounded-sm">✕</button>
+        </div>
+      </div>
+    </div>
+    <div className="overflow-y-auto flex-1">
+      <div className="wrap py-4 space-y-3">
+        {/* Kill rule alert */}
+        {killCheck && <div className={`status-banner ${killCheck.level==='kill'?'under':killCheck.level==='scale'?'met':'risk'}`}>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="sec-hd">{killCheck.level === 'kill' ? 'KILL RULE TRIGGERED' : killCheck.level === 'scale' ? 'SCALE WINNER' : killCheck.level === 'refresh' ? 'REFRESH SIGNAL' : 'AUDIT NEEDED'}</div>
+              <div className="text-lg font-bold text-stone-100">{killCheck.action}</div>
+              <div className="text-[11px] text-stone-400 mt-0.5">{killCheck.why}</div>
+            </div>
+            {killCheck.auto && <span className="chip risk text-[10px]">AUTO-FLAGGED</span>}
+          </div>
+        </div>}
+
+        {/* TAPG table — Target / Achieved / Pending / Gap */}
+        <div className="card">
+          <div className="px-4 py-2.5 border-b border-stone-800/40">
+            <span className="text-sm font-semibold text-stone-100">Goal · Where We Are · Shortfall · Gap to Goal</span>
+            <span className="text-[10px] text-stone-500 ml-2">campaign-level over {days} day{days>1?'s':''}</span>
+          </div>
+          <div className="hidden md:grid items-center px-4 py-2 border-b border-stone-800/30 text-[9px] uppercase tracking-widest text-stone-500 mono"
+               style={{gridTemplateColumns:'1.6fr 1fr 1fr 1fr 1fr 0.8fr'}}>
+            <div>KPI</div><div className="text-right">Goal</div><div className="text-right">Where We Are</div><div className="text-right">Shortfall</div><div className="text-right">Gap to Goal</div><div className="text-center">Status</div>
+          </div>
+          <div className="divide-y divide-stone-800/30">
+            {rows.map((r,i) => (<div key={i} className="row-h px-4 py-2.5 grid grid-cols-2 md:grid-cols-[1.6fr_1fr_1fr_1fr_1fr_0.8fr] gap-x-3 gap-y-1 items-center">
+              <div className="col-span-2 md:col-span-1">
+                <div className="flex items-center gap-2"><span className={`dot ${r.status}`}/><span className="text-sm font-semibold text-stone-100">{r.label}</span></div>
+                <div className="text-[10px] mono text-stone-600 mt-0.5 ml-3.5">{r.note}</div>
+              </div>
+              <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Goal</div><div className="mono text-sm text-stone-300">{fmtV(r.target,r.fmt)}{r.inverse?<span className="text-[9px] text-stone-600"> max</span>:''}</div></div>
+              <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Where We Are</div><div className={`mono text-base font-bold ${stColor(r.status)}`}>{fmtV(r.achieved,r.fmt)}</div></div>
+              <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Shortfall</div><div className="mono text-sm text-stone-300">{r.pending==null?'—':r.pending===0?<span className="text-emerald-500">0</span>:fmtV(r.pending,r.fmt)}</div></div>
+              <div className="text-right"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Gap</div><div className={`mono text-sm font-bold ${stColor(r.status)}`}>{r.gapPct==null?'—':(r.gapPct>=0?'+':'')+r.gapPct+'%'}</div></div>
+              <div className="text-center col-span-2 md:col-span-1"><div className="text-[8px] uppercase text-stone-600 md:hidden mono">Status</div><span className={`chip ${r.status} text-[9px]`}>{STATUS_LABEL[r.status]}</span></div>
+            </div>))}
+          </div>
+        </div>
+
+        {/* Per-campaign chart */}
+        {dailySeries.length > 0 && <div className="card">
+          <div className="px-4 py-2.5 border-b border-stone-800/40">
+            <span className="text-sm font-semibold text-stone-100">Campaign trends · values shown directly on chart</span>
+            <span className="text-[10px] text-stone-500 ml-2">{dailySeries.length} day{dailySeries.length>1?'s':''}</span>
+          </div>
+          <div className="px-4 py-2 border-b border-stone-800/30 flex flex-wrap gap-1.5">
+            {Object.entries(CHART_M).map(([k,v]) => (<button key={k} onClick={()=>setChartMetric(k)} className={`pill ${chartMetric===k?'active':''}`}>{v.label}</button>))}
+          </div>
+          <div className="p-4"><TimeChart data={dailySeries} metric={CHART_M[chartMetric]}/></div>
+        </div>}
+
+        {/* Ad sets table */}
+        {loading && <div className="card text-center py-6 text-stone-500 text-sm"><span className="spin">↻</span> Loading ad sets & ads…</div>}
+        {detail && detail.adsets && <div className="card">
+          <div className="px-4 py-2.5 border-b border-stone-800/40 flex flex-wrap items-baseline gap-2">
+            <span className="text-sm font-semibold text-stone-100">Ad sets · {detail.adsets.length} total · {detail.adsets.filter(a=>a.hasSpend).length} spending</span>
+            <span className="text-[10px] text-stone-500">target P{phase.phaseNo}: {cfg.adSets} ad sets, {cfg['ads'+pk.toUpperCase()]} ads</span>
+          </div>
+          <div className="p-4 overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="text-left text-stone-500 mono uppercase tracking-widest text-[9px]">
+                  <th className="py-1 pr-2">Ad Set</th><th className="text-right py-1 px-1">Spend</th><th className="text-right py-1 px-1">ROAS</th><th className="text-right py-1 px-1">CPA</th><th className="text-right py-1 px-1">AOV</th><th className="text-right py-1 px-1">Freq</th><th className="text-right py-1 pl-1">Recommendation</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-800/30">
+                {detail.adsets.map(a => {
+                  let rec = 'Monitoring';
+                  let recCol = 'text-stone-400';
+                  if (a.hasSpend) {
+                    if (a.purchases === 0 && a.spend > 5000) { rec = 'Pause — 0 orders at ' + inr(a.spend); recCol = 'text-red-400'; }
+                    else if (a.frequency > 3.5) { rec = 'Pause — freq fatigue ' + fx(a.frequency); recCol = 'text-red-400'; }
+                    else if (a.frequency > 3.0) { rec = 'Refresh creative — freq ' + fx(a.frequency); recCol = 'text-amber-400'; }
+                    else if (a.roas != null && a.roas >= 1.7) { rec = 'Scale +20% — strong'; recCol = 'text-emerald-400'; }
+                    else if (a.roas != null && a.roas < 1.0) { rec = 'Kill — below 1.0x'; recCol = 'text-red-400'; }
+                  } else { rec = 'No spend yet'; recCol = 'text-stone-600'; }
+                  return (<tr key={a.id} className="row-h">
+                    <td className="py-1.5 pr-2 text-stone-200 truncate max-w-[200px]" title={a.name}>{a.name}</td>
+                    <td className="text-right py-1.5 px-1 mono">{inr(a.spend)}</td>
+                    <td className="text-right py-1.5 px-1 mono"><span className={a.roas!=null&&a.roas>=1.5?'text-emerald-400':a.roas!=null&&a.roas<1.0?'text-red-400':'text-stone-300'}>{fx(a.roas)}</span></td>
+                    <td className="text-right py-1.5 px-1 mono">{inr(a.cpa)}</td>
+                    <td className="text-right py-1.5 px-1 mono">{inr(a.aov)}</td>
+                    <td className="text-right py-1.5 px-1 mono"><span className={a.frequency>3.5?'text-red-400':a.frequency>3.0?'text-amber-400':'text-stone-300'}>{fx(a.frequency)}</span></td>
+                    <td className={`text-right py-1.5 pl-1 mono text-[10px] ${recCol}`}>{rec}</td>
+                  </tr>);
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>}
+
+        {/* AD-LEVEL · per-ad recommendation engine (Sheet 16 Section 3) */}
+        {detail && detail.ads && detail.ads.length > 0 && <div className="card">
+          <div className="px-4 py-2.5 border-b border-stone-800/40 flex flex-wrap items-baseline gap-2">
+            <span className="text-sm font-semibold text-stone-100">Ads · {detail.ads.length} total · {detail.ads.filter(a=>a.hasSpend).length} spending</span>
+            <span className="text-[10px] text-stone-500">target P{phase.phaseNo}: {cfg['adsP' + phase.phaseNo]} ads · per-ad action follows kill rules</span>
+          </div>
+          {/* Action summary chips */}
+          {(() => {
+            const verdicts = detail.ads.filter(a => a.hasSpend).map(a => evalAdAction(a, cfg));
+            const counts = verdicts.reduce((acc,v) => { acc[v.level] = (acc[v.level]||0)+1; return acc; }, {});
+            return (<div className="px-4 py-2 border-b border-stone-800/30 flex flex-wrap items-center gap-1.5 text-[10px]">
+              <span className="sec-hd !mb-0">Recommendations</span>
+              {counts.kill    && <span className="chip under text-[9px]">{counts.kill} KILL</span>}
+              {counts.pause   && <span className="chip under text-[9px]">{counts.pause} PAUSE</span>}
+              {counts.refresh && <span className="chip risk text-[9px]">{counts.refresh} REFRESH</span>}
+              {counts.audit   && <span className="chip risk text-[9px]">{counts.audit} AUDIT</span>}
+              {counts.scale   && <span className="chip met text-[9px]">{counts.scale} SCALE</span>}
+              {counts.hold    && <span className="chip idle text-[9px]">{counts.hold} HOLD</span>}
+              {counts.idle    && <span className="chip idle text-[9px]">{counts.idle} BUILDING</span>}
+            </div>);
+          })()}
+          <div className="p-4 overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="text-left text-stone-500 mono uppercase tracking-widest text-[9px]">
+                  <th className="py-1 pr-2">Ad</th>
+                  <th className="text-right py-1 px-1">Spend</th>
+                  <th className="text-right py-1 px-1">ROAS</th>
+                  <th className="text-right py-1 px-1">CPA</th>
+                  <th className="text-right py-1 px-1">CVR</th>
+                  <th className="text-right py-1 px-1">Orders</th>
+                  <th className="text-right py-1 px-1">Freq</th>
+                  <th className="text-right py-1 pl-1">Recommended Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-800/30">
+                {[...detail.ads].sort((a,b)=>(b.spend||0)-(a.spend||0)).map(ad => {
+                  const verdict = evalAdAction(ad, cfg);
+                  const cvr = ad.linkClicks > 0 ? +(ad.purchases / ad.linkClicks * 100).toFixed(2) : null;
+                  const lvlCol = { kill:'text-red-400', pause:'text-red-400', refresh:'text-amber-400', audit:'text-amber-400', scale:'text-emerald-400', hold:'text-stone-400', idle:'text-stone-600' }[verdict.level] || 'text-stone-400';
+                  const rowBg  = verdict.level === 'kill' || verdict.level === 'pause' ? 'bg-red-950/15' : verdict.level === 'scale' ? 'bg-emerald-950/10' : '';
+                  return (<tr key={ad.id} className={`row-h ${rowBg}`}>
+                    <td className="py-1.5 pr-2 text-stone-200 max-w-[240px]">
+                      <div className="truncate" title={ad.name}>{ad.name}</div>
+                      <a href={`https://business.facebook.com/adsmanager/manage/ads?act=${CFG.meta.accountId}&selected_ad_ids=${ad.id}`} target="_blank" rel="noreferrer" className="text-[9px] text-stone-600 hover:text-amber-500 mono">{ad.id} ↗</a>
+                    </td>
+                    <td className="text-right py-1.5 px-1 mono">{inr(ad.spend)}</td>
+                    <td className="text-right py-1.5 px-1 mono">
+                      <span className={ad.roas!=null && ad.roas>=1.5?'text-emerald-400 font-bold':ad.roas!=null && ad.roas<1.0?'text-red-400 font-bold':'text-stone-300'}>{fx(ad.roas)}</span>
+                    </td>
+                    <td className="text-right py-1.5 px-1 mono text-stone-300">{inr(ad.cpa)}</td>
+                    <td className="text-right py-1.5 px-1 mono">
+                      <span className={cvr!=null && cvr>=2.0?'text-emerald-400':cvr!=null && cvr<1.0?'text-red-400':'text-stone-300'}>{cvr!=null?pct(cvr,2):'—'}</span>
+                    </td>
+                    <td className="text-right py-1.5 px-1 mono text-stone-300">{ad.purchases || 0}</td>
+                    <td className="text-right py-1.5 px-1 mono">
+                      <span className={ad.frequency>3.5?'text-red-400 font-bold':ad.frequency>3.0?'text-amber-400':'text-stone-300'}>{fx(ad.frequency)}</span>
+                    </td>
+                    <td className="text-right py-1.5 pl-1">
+                      <div className={`mono text-[10px] font-bold ${lvlCol}`}>{verdict.text}</div>
+                      <div className="text-[9px] text-stone-600 mono">{verdict.why}</div>
+                    </td>
+                  </tr>);
+                })}
+              </tbody>
+            </table>
+          </div>
+          {/* Recommendation legend */}
+          <div className="px-4 py-2 border-t border-stone-800/30 text-[10px] text-stone-500 mono">
+            <span className="text-red-400">KILL</span>/PAUSE = stop spend ·
+            <span className="text-amber-400"> REFRESH</span>/AUDIT = creative or feed issue ·
+            <span className="text-emerald-400"> SCALE</span> = budget +20% ·
+            HOLD = within band · BUILDING = below spend gate
+          </div>
+        </div>}
+      </div>
+    </div>
+  </div>);
+}
+
+// ── 8) INTERACTIVE TRENDS CHART (account-level + campaign filter) ───
+function TrendsPanel({ data }) {
+  const [open, setOpen] = useState(true);
+  const [metric, setMetric] = useState('roas');
+  const [scope, setScope] = useState('all');
+  if (!data?.dailyData?.length) return null;
+  const METRICS = {
+    roas:    { label:'ROAS',     fmt:'x', target:1.6,   kill:1.4,  colour:'#f59e0b', accessor:d=>d.roas },
+    spend:   { label:'Spend',    fmt:'₹', target:null,  kill:null, colour:'#a8a29e', accessor:d=>d.spend },
+    revenue: { label:'Revenue',  fmt:'₹', target:null,  kill:null, colour:'#10b981', accessor:d=>d.revenue },
+    cpa:     { label:'CPA',      fmt:'₹', target:3200,  kill:4000, colour:'#f87171', accessor:d=>d.cpa, inverse:true },
+    aov:     { label:'AOV',      fmt:'₹', target:7800,  kill:5000, colour:'#34d399', accessor:d=>d.aov },
+    purchases:{ label:'Orders',   fmt:'n', target:null,  kill:null, colour:'#fbbf24', accessor:d=>d.purchases },
+  };
+  const M = METRICS[metric];
+  const allCamps = data.campaigns || [];
+  let series = [], seriesLabel = 'Account total';
+  if (scope === 'all') {
+    series = data.dailyData.filter(d => (d.spend||0) > 0);
+    seriesLabel = 'Account total';
+  } else if (['prospecting','retargeting','reactivation'].includes(scope)) {
+    const stageCamps = allCamps.filter(c => SLOT_MAP[c.slot]?.type === scope);
+    const dayMap = {};
+    stageCamps.forEach(c => (c.daily||[]).forEach(d => {
+      if (!dayMap[d.date]) dayMap[d.date] = { date:d.date, spend:0, revenue:0, purchases:0, impressions:0, clicks:0, reach:0 };
+      dayMap[d.date].spend += d.spend||0;
+      dayMap[d.date].revenue += d.revenue||0;
+      dayMap[d.date].purchases += d.purchases||0;
+      dayMap[d.date].impressions += d.impressions||0;
+      dayMap[d.date].clicks += d.clicks||0;
+      dayMap[d.date].reach = Math.max(dayMap[d.date].reach, d.reach||0);
+    }));
+    series = Object.values(dayMap).sort((a,b)=>a.date.localeCompare(b.date)).map(d => ({
+      ...d,
+      roas: d.spend>0 ? +(d.revenue/d.spend).toFixed(2) : null,
+      cpa: d.purchases>0 ? Math.round(d.spend/d.purchases) : null,
+      aov: d.purchases>0 ? Math.round(d.revenue/d.purchases) : null,
+    }));
+    seriesLabel = scope.toUpperCase() + ' stage · ' + stageCamps.length + ' camp';
+  } else {
+    const c = allCamps.find(x => x.id === scope);
+    if (c) { series = (c.daily||[]).filter(d => (d.spend||0) > 0); seriesLabel = `${c.slot} · ${c.name}`; }
+  }
+  return (<div className="card mb-3">
+    <div className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[.02]" onClick={()=>setOpen(!open)}>
+      <div><div className="sec-hd">Interactive Trends · {seriesLabel} · {series.length} days</div>
+        <div className="text-xl font-bold text-stone-100 mt-0.5">{M.label} over time · values labeled</div></div>
+      <span className="text-stone-600">{open?'▲':'▼'}</span>
+    </div>
+    {open && (<div className="border-t border-stone-800/40 p-4 sd">
+      <div className="flex flex-wrap items-center gap-2 mb-2.5">
+        <span className="sec-hd !mb-0">Metric</span>
+        {Object.entries(METRICS).map(([k,v]) => (<button key={k} onClick={e=>{e.stopPropagation();setMetric(k);}} className={`pill ${metric===k?'active':''}`}>{v.label}</button>))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-stone-800/30">
+        <span className="sec-hd !mb-0">Scope</span>
+        <button onClick={e=>{e.stopPropagation();setScope('all');}} className={`pill ${scope==='all'?'active':''}`}>Total</button>
+        <span className="text-stone-700 mx-0.5">·</span>
+        {[['prospecting','Prospect'],['retargeting','Retarget'],['reactivation','React']].map(([k,l]) => (<button key={k} onClick={e=>{e.stopPropagation();setScope(k);}} className={`pill ${scope===k?'active':''}`}>{l}</button>))}
+        <span className="text-stone-700 mx-0.5">·</span>
+        {allCamps.filter(c=>c.slot).sort((a,b)=>a.slot.localeCompare(b.slot)).map(c => (<button key={c.id} onClick={e=>{e.stopPropagation();setScope(c.id);}} className={`pill ${scope===c.id?'active':''}`} title={c.name}>{c.slot}</button>))}
+      </div>
+      {series.length === 0 ? <div className="text-stone-500 text-xs py-8 text-center">No spend in this scope for the selected range.</div> : <TimeChart data={series} metric={M}/>}
+    </div>)}
+  </div>);
+}
+
+function TimeChart({ data, metric }) {
+  const W = 820, H = 280, P = 50, PB = 46;
+  const pts = data.map(d => ({ date:d.date, v: metric.accessor(d) })).filter(p => p.v != null);
+  if (!pts.length) return <div className="text-stone-500 text-xs py-8 text-center">No data for this metric.</div>;
+  const vals = pts.map(p => p.v);
+  const mn = Math.min(0, ...vals, metric.target||0, metric.kill||0);
+  const mx = Math.max(...vals, metric.target||0, metric.kill||0) * 1.15;
+  const scale = v => H - PB - ((v - mn) / (mx - mn)) * (H - P - PB);
+  const xStep = pts.length > 1 ? (W - P*2) / (pts.length - 1) : 0;
+  const x = i => P + i * xStep;
+  const path = pts.map((p,i) => (i===0?'M':'L') + x(i) + ',' + scale(p.v)).join(' ');
+  const area = path + ` L${x(pts.length-1)},${scale(Math.max(0,mn))} L${x(0)},${scale(Math.max(0,mn))} Z`;
+  const fmtLabel = v => {
+    if (v == null) return '—';
+    if (metric.fmt === 'x') return Number(v).toFixed(2) + 'x';
+    if (metric.fmt === '%') return Number(v).toFixed(1) + '%';
+    if (metric.fmt === '₹') { const a = Math.abs(v); if (a >= 100000) return (v<0?'−₹':'₹')+Math.abs(v/100000).toFixed(1)+'L'; if (a >= 1000) return (v<0?'−₹':'₹')+Math.abs(v/1000).toFixed(1)+'k'; return inr(v); }
+    return num(v);
+  };
+  const labelEvery = Math.max(1, Math.ceil(pts.length / 12));
+  const xTickStep = Math.max(1, Math.ceil(pts.length / 8));
+  return (<div>
+    <svg viewBox={`0 0 ${W} ${H+20}`} className="w-full" style={{maxHeight:'340px'}} preserveAspectRatio="xMidYMid meet">
+      {[0,0.25,0.5,0.75,1].map((p,i) => { const y = P + p*(H-P-PB); const v = mx - p*(mx-mn); return (<g key={i}><line x1={P} y1={y} x2={W-P} y2={y} stroke="#292524" strokeWidth="1" strokeDasharray={i===0||i===4?'':'2,3'}/><text x={P-6} y={y+3} fill="#78716c" fontSize="9" textAnchor="end" fontFamily="IBM Plex Mono">{fmtLabel(v)}</text></g>); })}
+      {metric.target != null && <g><line x1={P} y1={scale(metric.target)} x2={W-P} y2={scale(metric.target)} stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="5,3"/><rect x={W-P-100} y={scale(metric.target)-13} width="100" height="13" fill="#0d0c0b"/><text x={W-P-2} y={scale(metric.target)-3} fill="#f59e0b" fontSize="10" textAnchor="end" fontFamily="IBM Plex Mono" fontWeight="bold">goal {fmtLabel(metric.target)}</text></g>}
+      {metric.kill != null && <g><line x1={P} y1={scale(metric.kill)} x2={W-P} y2={scale(metric.kill)} stroke="#dc2626" strokeWidth="1" strokeDasharray="3,3"/><rect x={W-P-100} y={scale(metric.kill)+3} width="100" height="13" fill="#0d0c0b"/><text x={W-P-2} y={scale(metric.kill)+13} fill="#dc2626" fontSize="10" textAnchor="end" fontFamily="IBM Plex Mono" fontWeight="bold">{metric.inverse?'cap':'kill'} {fmtLabel(metric.kill)}</text></g>}
+      <path d={area} fill={metric.colour} opacity="0.10"/>
+      <path d={path} fill="none" stroke={metric.colour} strokeWidth="2.2" strokeLinejoin="round"/>
+      {pts.map((p,i) => {
+        const xx = x(i), yy = scale(p.v);
+        const onTarget = metric.target != null ? (metric.inverse ? p.v <= metric.target : p.v >= metric.target) : true;
+        const ringCol = onTarget ? metric.colour : '#ef4444';
+        const labelAbove = yy > (P + (H-P-PB)*0.45);
+        const ly = labelAbove ? yy - 9 : yy + 15;
+        const showLabel = (i % labelEvery === 0) || i === pts.length - 1 || i === 0;
+        return (<g key={i}>
+          <circle cx={xx} cy={yy} r="4" fill={ringCol} stroke="#0d0c0b" strokeWidth="1.5"/>
+          {showLabel && (<g>
+            <rect x={xx-24} y={ly-9} width="48" height="13" fill="#0d0c0b" opacity="0.88" rx="2"/>
+            <text x={xx} y={ly+1} fill={onTarget?'#e7e5e4':'#fca5a5'} fontSize="10" textAnchor="middle" fontFamily="IBM Plex Mono" fontWeight="bold">{fmtLabel(p.v)}</text>
+          </g>)}
+        </g>);
+      })}
+      {pts.map((p,i) => { if (i%xTickStep!==0 && i!==pts.length-1) return null; const dt = new Date(p.date+'T12:00:00'); return (<text key={i} x={x(i)} y={H+12} fill="#78716c" fontSize="9" textAnchor="middle" fontFamily="IBM Plex Mono">{dt.toLocaleDateString('en-IN',{day:'numeric',month:'short'})}</text>); })}
+      {pts.length>0 && (() => { const xx = x(pts.length-1); const yy = scale(pts[pts.length-1].v); return (<g><line x1={xx} y1={P} x2={xx} y2={H-PB} stroke={metric.colour} strokeWidth="0.5" strokeDasharray="2,3" opacity="0.4"/><circle cx={xx} cy={yy} r="7" fill="none" stroke={metric.colour} strokeWidth="1.5" opacity="0.7"/></g>); })()}
+    </svg>
+    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] mono">
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-stone-500">Latest <span className="text-stone-100 font-bold ml-1">{fmtLabel(pts[pts.length-1].v)}</span></span>
+        <span className="text-stone-500">Avg <span className="text-stone-300 ml-1">{fmtLabel(vals.reduce((s,v)=>s+v,0)/vals.length)}</span></span>
+        <span className="text-stone-500">Min <span className="text-stone-300 ml-1">{fmtLabel(Math.min(...vals))}</span></span>
+        <span className="text-stone-500">Max <span className="text-stone-300 ml-1">{fmtLabel(Math.max(...vals))}</span></span>
+      </div>
+      {metric.target != null && <span className="text-stone-500">Days on target <span className="text-stone-100 font-bold ml-1">{pts.filter(p => metric.inverse ? p.v <= metric.target : p.v >= metric.target).length}/{pts.length}</span></span>}
+    </div>
+  </div>);
+}
+
+// ── 9) PRE-FLIGHT CHECKLIST ─────────────────────────────────────────
+function ChecklistPanel() {
+  const [open, setOpen] = useState(false);
+  const [checked, setChecked] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('pixie_preflight') || '{}'); }
+    catch { return {}; }
+  });
+  const toggle = n => {
+    const next = { ...checked, [n]: !checked[n] };
+    setChecked(next);
+    localStorage.setItem('pixie_preflight', JSON.stringify(next));
+  };
+  const total = CFG.preflightChecklist.length;
+  const done = CFG.preflightChecklist.filter(i => checked[i.n]).length;
+  const pct = Math.round(done/total*100);
+  return (<div className="card mb-3">
+    <div className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-white/[.02]" onClick={()=>setOpen(!open)}>
+      <div>
+        <div className="sec-hd">Launch Pre-Flight Checklist · 22 items</div>
+        <div className="text-base font-bold text-stone-100 mt-0.5">{done} of {total} complete · {pct}%</div>
+      </div>
+      <span className="text-stone-600">{open?'▲':'▼'}</span>
+    </div>
+    {open && (<div className="border-t border-stone-800/40 px-4 py-3 sd">
+      <div className="tbar mb-3"><div className="tbar-fill" style={{width:pct+'%',background:pct===100?'#10b981':'#f59e0b'}}/></div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
+        {CFG.preflightChecklist.map(item => (<label key={item.n} className="flex items-start gap-2 py-1.5 px-2 hover:bg-white/[.02] rounded-sm cursor-pointer">
+          <input type="checkbox" checked={!!checked[item.n]} onChange={()=>toggle(item.n)} className="mt-0.5 accent-amber-500"/>
+          <div className="flex-1 min-w-0">
+            <div className={`text-[11px] leading-snug ${checked[item.n]?'text-stone-500 line-through':'text-stone-200'}`}><span className="mono text-stone-600">#{item.n}</span> {item.item}</div>
+            <div className="text-[9px] mono text-stone-600">{item.category} · {item.verifier}</div>
+          </div>
+        </label>))}
+      </div>
+    </div>)}
+  </div>);
+}
+
+// ── 10) TOKEN MODAL ─────────────────────────────────────────────────
+function TokenModal({ onSave }) {
+  const [tok, setTok] = useState('');
+  const [err, setErr] = useState('');
+  const [testing, setTesting] = useState(false);
+  const go = async () => {
+    if (!tok.trim()) { setErr('Paste your Meta Access Token'); return; }
+    setTesting(true); setErr('');
+    try {
+      const r = await fetch(`${BASE}/me?fields=name&access_token=${tok.trim()}`);
+      const d = await r.json();
+      if (d.error) throw new Error(d.error.message);
+      localStorage.setItem('meta_token', tok.trim());
+      onSave(tok.trim());
+    } catch (e) { setErr('Token error: ' + e.message); }
+    finally { setTesting(false); }
+  };
+  return (<div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{background:'rgba(0,0,0,.85)',backdropFilter:'blur(8px)'}}>
+    <div className="w-full max-w-lg card p-6 sm:p-8 space-y-5">
+      <div><div className="sec-hd mb-1">Pretty Pixie · Fashion Forever</div><div className="text-xl font-bold text-stone-100">Performance Command Center</div><div className="text-[11px] text-stone-500 mt-1">Meta System User token required</div></div>
+      <div><label className="sec-hd block mb-2">Meta Access Token</label><textarea value={tok} onChange={e=>setTok(e.target.value)} rows={4} className="w-full bg-stone-900/80 border border-stone-700 text-stone-100 px-3 py-2.5 text-xs outline-none focus:border-amber-600 rounded-sm mono resize-none" placeholder="EAAQzImg59n..."/></div>
+      {err && <div className="px-3 py-2 bg-red-950/30 border border-red-800/50 text-red-300 text-xs rounded-sm">{err}</div>}
+      <button onClick={go} disabled={testing} className="w-full bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-stone-950 font-bold py-3 text-sm rounded-sm uppercase tracking-widest">{testing?<><span className="spin">↻</span> Verifying…</>:'Connect Dashboard'}</button>
+    </div>
+  </div>);
+}
+
+/* ═══ MAIN DASHBOARD ═══════════════════════════════════════════════ */
+function Dashboard({ token, onChangeToken }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
+  const [preset, setPreset] = useState('last_7d');
+  const [custom, setCustom] = useState({ s:'', u:'' });
+  const [useCustom, setUseCustom] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+  const [detail, setDetail] = useState({});
+  const [loadingDetail, setLoadingDetail] = useState({});
+  const [autoRefresh, setAutoRefresh] = useState(() => {
+    try { return parseInt(localStorage.getItem('pixie_autorefresh') || '0', 10); } catch { return 0; }
+  });
+  const [tick, setTick] = useState(0);  // forces re-render for "synced X ago" counter
+
+  const dateQ = useMemo(() => useCustom && custom.s && custom.u
+    ? `time_range=${encodeURIComponent(JSON.stringify({since:custom.s,until:custom.u}))}`
+    : `date_preset=${preset}`, [useCustom, custom, preset]);
+  const dateLabel = useMemo(() => useCustom && custom.s && custom.u ? `${custom.s} → ${custom.u}` : preset, [useCustom, custom, preset]);
+
+  const sync = useCallback(async () => {
+    setSyncing(true); setErr(null);
+    try { const d = await fetchAll(token, dateQ); setData(d); setLastSync(new Date().toISOString()); }
+    catch (e) { setErr(e.message); }
+    finally { setSyncing(false); }
+  }, [token, dateQ]);
+
+  useEffect(() => { sync(); }, [sync]);
+
+  // Auto-refresh interval (off / 5 / 15 / 30 min)
+  useEffect(() => {
+    localStorage.setItem('pixie_autorefresh', String(autoRefresh));
+    if (autoRefresh === 0) return;
+    const id = setInterval(() => sync(), autoRefresh * 60 * 1000);
+    return () => clearInterval(id);
+  }, [autoRefresh, sync]);
+
+  // Tick every 10s so "synced X seconds ago" stays fresh
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 10000);
+    return () => clearInterval(id);
+  }, []);
+
+  const loadDetail = useCallback(async (id) => {
+    if (loadingDetail[id]) return;
+    setLoadingDetail(p => ({ ...p, [id]: true }));
+    try { const d = await fetchDetail(token, id, dateQ); setDetail(p => ({ ...p, [id]: d })); }
+    catch (e) { console.error(e); }
+    finally { setLoadingDetail(p => ({ ...p, [id]: false })); }
+  }, [token, dateQ, loadingDetail]);
+
+  const handleExpand = (id) => {
+    if (expanded === id) setExpanded(null);
+    else { setExpanded(id); if (!detail[id]) loadDetail(id); }
+  };
+
+  const phase = useMemo(() => currentPhase(), []);
+  const slotData = useMemo(() => { if (!data?.campaigns) return {}; const m = {}; data.campaigns.forEach(c => { if (c.slot) m[c.slot] = c; }); return m; }, [data]);
+  const expandedData = useMemo(() => data?.campaigns?.find(c => c.id === expanded), [expanded, data]);
+  const expandedCfg = useMemo(() => expandedData ? SLOT_MAP[expandedData.slot] : null, [expandedData]);
+  const days = useMemo(() => daysInRange(data?.dailyData), [data]);
+  const actuals = useMemo(() => data ? computeActuals(data) : {}, [data]);
+  const kpiRows = useMemo(() => data ? computeKpiRows(data, actuals, phase) : [], [data, actuals, phase]);
+  const ruleResults = useMemo(() => data ? evalMarginRules(data, actuals, phase) : [], [data, actuals, phase]);
+
+  return (<div className="min-h-screen pb-16">
+    {/* Sticky header */}
+    <div className="sticky top-0 z-40 border-b border-stone-800/60 no-print" style={{background:'rgba(13,12,11,.93)',backdropFilter:'blur(12px)'}}>
+      <div className="wrap py-2">
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm font-bold text-stone-200">Pretty Pixie · Fashion Forever</span>
+            <span className="text-stone-700">·</span>
+            <span className="sec-hd hidden sm:block !mb-0">Performance Command Center · v5.1</span>
+            {data && <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${syncing?'bg-amber-400 pulse':autoRefresh>0?'bg-emerald-500 pulse':'bg-emerald-500'}`}/>}
+            {lastSync && (() => {
+              const secs = Math.floor((Date.now() - new Date(lastSync).getTime()) / 1000);
+              const ago = secs < 60 ? `${secs}s ago` : secs < 3600 ? `${Math.floor(secs/60)}m ago` : `${Math.floor(secs/3600)}h ago`;
+              return (<span className="text-[10px] mono text-stone-500" title={new Date(lastSync).toLocaleString('en-IN')}>{syncing ? 'syncing…' : 'synced ' + ago}<span className="hidden sm:inline" data-tick={tick}/></span>);
+            })()}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <select value={autoRefresh} onChange={e=>setAutoRefresh(parseInt(e.target.value,10))} className="text-[9px] mono bg-stone-800 border border-stone-700 text-stone-300 px-1.5 py-1.5 rounded-sm outline-none cursor-pointer" title="Auto-refresh">
+              <option value="0">⏸ Manual</option>
+              <option value="5">⟳ 5min</option>
+              <option value="15">⟳ 15min</option>
+              <option value="30">⟳ 30min</option>
+            </select>
+            <button onClick={()=>window.print()} className="text-[9px] px-2 py-1.5 border border-stone-700 text-stone-400 hover:text-stone-200 rounded-sm uppercase hidden sm:block">Print</button>
+            <button onClick={sync} disabled={syncing} className="text-[9px] px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-stone-950 font-bold rounded-sm disabled:opacity-50 uppercase tracking-widest">{syncing?<span className="spin">↻</span>:'Sync Now'}</button>
+            <button onClick={onChangeToken} className="text-[9px] w-8 h-7 border border-stone-700 text-stone-500 hover:text-stone-300 rounded-sm flex items-center justify-center">⚙</button>
+          </div>
+        </div>
+        <div className="presets-scroll">
+          {CFG.datePresets.map(p => (<button key={p.v} onClick={()=>{setPreset(p.v);setUseCustom(false);setExpanded(null);setDetail({});}} className={`text-[10px] px-2 py-1 rounded-sm uppercase tracking-widest whitespace-nowrap ${(!useCustom&&preset===p.v)?'bg-stone-700 text-stone-100':'text-stone-500 hover:text-stone-300'}`}>{p.label}</button>))}
+          <button onClick={()=>setShowPicker(!showPicker)} className={`text-[10px] px-2 py-1 rounded-sm whitespace-nowrap ${useCustom?'bg-amber-700 text-stone-100':'text-stone-500 hover:text-stone-300'}`}>📅 Custom</button>
+          {showPicker && (<>
+            <input type="date" value={custom.s} onChange={e=>setCustom(p=>({...p,s:e.target.value}))} className="bg-stone-800 border border-stone-700 text-stone-200 text-[10px] px-2 py-1 outline-none rounded-sm"/>
+            <span className="text-stone-600">→</span>
+            <input type="date" value={custom.u} onChange={e=>setCustom(p=>({...p,u:e.target.value}))} className="bg-stone-800 border border-stone-700 text-stone-200 text-[10px] px-2 py-1 outline-none rounded-sm"/>
+            <button onClick={()=>{if(custom.s&&custom.u){setUseCustom(true);setShowPicker(false);}}} className="text-[10px] px-2 py-1 bg-amber-600 text-stone-950 font-bold rounded-sm">Go</button>
+          </>)}
+        </div>
+      </div>
+    </div>
+
+    <div className="wrap pt-4">
+      {err && <div className="mb-3 px-3 py-2.5 bg-red-950/30 border border-red-800/50 text-red-300 text-xs rounded-sm">{err} <button onClick={onChangeToken} className="underline ml-2">Update token</button></div>}
+      {!data && !err && <div className="flex items-center justify-center py-32 text-stone-500 text-sm"><span className="spin mr-2">↻</span>Connecting to Meta API…</div>}
+
+      {data && (<>
+        {/* HERO STATUS BANNER */}
+        <ExecutiveHeader data={data} actuals={actuals} phase={phase} kpiRows={kpiRows}/>
+
+        {/* MARGIN PROTECTION RULES — first, so breaches surface immediately */}
+        <MarginRulesPanel ruleResults={ruleResults}/>
+
+        {/* EXECUTIVE SUMMARY — Goal / Where We Are / Status / What to Do */}
+        <ExecutiveSummary kpiRows={kpiRows} phase={phase}/>
+
+        {/* CONVERSION FUNNEL · CRO diagnostic */}
+        <ConversionFunnelPanel data={data}/>
+
+        {/* FUNNEL STAGE ALLOCATION */}
+        <StagePanel data={data} phase={phase}/>
+
+        {/* CAMPAIGN MATRIX */}
+        <div className="flex items-baseline justify-between mb-2 mt-2 sec-divider">
+          <div>
+            <div className="sec-hd">9-Campaign Matrix · click any card for full detail</div>
+            <div className="text-xl font-bold text-stone-100">Per-campaign · Goal · Where We Are · Gap</div>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] mono text-stone-600">Target P{phase.phaseNo}: ₹{(CFG.phases[phase.phaseNo-1].dailyBudget).toLocaleString('en-IN')}/day · {CFG.assetTargets[phaseKey(phase.phaseNo)].activeAdSets} ad sets</div>
+            <div className="text-[10px] mono text-stone-600">{data.campaigns?.filter(c=>c.effectiveStatus==='ACTIVE').length||0} of 9 active</div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 mb-3">
+          {SLOTS.map(cfg => (<CampaignCard key={cfg.slot} cfg={cfg} data={slotData[cfg.slot]} days={days} phase={phase} onExpand={()=>slotData[cfg.slot]&&handleExpand(slotData[cfg.slot].id)}/>))}
+        </div>
+
+        {/* INTERACTIVE TRENDS */}
+        <TrendsPanel data={data}/>
+
+        {/* AUDIENCE SEGMENTS */}
+        <SegmentsPanel data={data} phase={phase}/>
+
+        {/* PRE-FLIGHT CHECKLIST */}
+        <ChecklistPanel/>
+
+        {/* FOOTER NOTE */}
+        <div className="text-[10px] text-stone-600 mt-6 leading-relaxed mono">
+          Pretty Pixie Performance Dashboard v5 · Targets locked from FashionForever Mar+Apr Analysis v6 ·
+          Phase {phase.phaseNo} ({phase.name}) Day {phase.dayOfPhase}/{phase.days} ·
+          Edit <code className="text-amber-500">config.js</code> on GitHub to update targets without touching app code.
+        </div>
+      </>)}
+    </div>
+
+    {expanded && expandedCfg && expandedData && (
+      <CampaignDetail
+        cfg={expandedCfg} data={expandedData} detail={detail[expanded]}
+        loading={!!loadingDetail[expanded]} dateLabel={dateLabel} days={days} phase={phase}
+        onClose={()=>setExpanded(null)}
+        onReload={()=>{setDetail(p=>{const n={...p};delete n[expanded];return n;});loadDetail(expanded);}}
+      />
+    )}
+  </div>);
+}
+
+function App() {
+  const [token, setToken] = useState(() => localStorage.getItem('meta_token') || '');
+  const [showModal, setShowModal] = useState(() => !localStorage.getItem('meta_token'));
+  const save = t => { setToken(t); setShowModal(false); };
+  const change = () => { localStorage.removeItem('meta_token'); setToken(''); setShowModal(true); };
+  return (<>
+    {showModal && <TokenModal onSave={save}/>}
+    {token && !showModal && <Dashboard token={token} onChangeToken={change}/>}
+  </>);
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
